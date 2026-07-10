@@ -1,0 +1,19 @@
+{
+  "manifest_version": "1",
+  "name": "starter-mock-eq",
+  "repetitions": 1,
+  "seed": 1729,
+  "audio": [
+    { "id": "guitar", "path": "../../../oss/text2fx/assets/guitar.wav" },
+    { "id": "speech", "path": "../../../oss/text2fx/assets/speech.wav" }
+  ],
+  "prompts": [
+    { "id": "warm-clear", "text": "warm, but keep it clear" },
+    { "id": "bright-airy", "text": "bright and airy" }
+  ],
+  "matrix": {
+    "backend": ["mock"],
+    "iterations": [1, 10],
+    "parameter_initialization": ["zeros"]
+  }
+}

@@ -53,6 +53,17 @@ this repository. Override it with `SEMANTIFX_TEXT2FX_REPO=/absolute/path`.
 Model caches remain controlled by Text2FX and its ML libraries; do not place
 them in this repository.
 
+A persistent worker reuses each loaded CLAP model within its process. Result
+metrics report `model_cache_hit` and `model_cache_miss`; terminating the worker
+releases the model. Optional `options.random_seed` makes cold and warm
+optimization requests start from the same random state.
+
+## Benchmark
+
+Manifest-driven mock and Text2FX benchmark examples, including a two-request
+model-cache smoke, are documented in [`benchmarks/README.md`](benchmarks/README.md).
+The runner writes JSONL and CSV summaries and never copies audio into results.
+
 ## Test
 
 ```sh

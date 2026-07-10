@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--parameter-initialization", choices=("zeros", "random", "super_random"), default="zeros")
     analyze_parser.add_argument("--parameter-regularization", type=float, default=0.0)
     analyze_parser.add_argument("--roll-samples", type=int, default=None)
+    analyze_parser.add_argument("--random-seed", type=int, default=None)
     analyze_parser.add_argument("--diagnostics", action="store_true")
     return parser
 
@@ -38,6 +39,8 @@ def main(argv=None) -> int:
     }
     if args.roll_samples is not None:
         options["roll_samples"] = args.roll_samples
+    if args.random_seed is not None:
+        options["random_seed"] = args.random_seed
     request = {
         "protocol_version": "1",
         "type": "analyze",
@@ -56,4 +59,3 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

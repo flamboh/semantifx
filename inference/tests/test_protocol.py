@@ -44,7 +44,18 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "unsupported_protocol_version")
         self.assertEqual(raised.exception.details["supported_versions"], ["1"])
 
+    def test_accepts_uint32_random_seed(self):
+        value = request()
+        value["options"]["random_seed"] = 4294967295
+        self.assertIs(validate_request(value), value)
+
+    def test_rejects_random_seed_outside_uint32(self):
+        value = request()
+        value["options"]["random_seed"] = 4294967296
+        with self.assertRaises(SemantiFXError) as raised:
+            validate_request(value)
+        self.assertEqual(raised.exception.details["field"], "options.random_seed")
+
 
 if __name__ == "__main__":
     unittest.main()
-

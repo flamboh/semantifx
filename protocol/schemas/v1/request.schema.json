@@ -35,7 +35,8 @@
         "learning_rate": { "type": "number", "exclusiveMinimum": 0 },
         "parameter_initialization": { "enum": ["zeros", "random", "super_random"] },
         "parameter_regularization": { "type": "number", "minimum": 0 },
-        "roll_samples": { "type": "integer", "minimum": 0 }
+        "roll_samples": { "type": "integer", "minimum": 0 },
+        "random_seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
       }
     }
   }

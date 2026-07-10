@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semantifx.local/benchmarks/manifest.schema.json",
+  "title": "SemantiFX benchmark manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest_version", "name", "audio", "prompts", "matrix"],
+  "properties": {
+    "manifest_version": { "const": "1" },
+    "name": { "type": "string", "minLength": 1 },
+    "repetitions": { "type": "integer", "minimum": 1 },
+    "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "audio": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "prompts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend"],
+      "properties": {
+        "backend": { "type": "array", "minItems": 1, "items": { "enum": ["mock", "text2fx"] } },
+        "model": { "type": "array", "minItems": 1, "items": { "enum": ["ms_clap", "laion_clap"] } },
+        "criterion": { "type": "array", "minItems": 1, "items": { "enum": ["cosine-sim", "directional_loss", "standard"] } },
+        "iterations": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1, "maximum": 10000 } },
+        "learning_rate": { "type": "array", "minItems": 1, "items": { "type": "number", "exclusiveMinimum": 0 } },
+        "parameter_initialization": { "type": "array", "minItems": 1, "items": { "enum": ["zeros", "random", "super_random"] } },
+        "parameter_regularization": { "type": "array", "minItems": 1, "items": { "type": "number", "minimum": 0 } },
+        "roll_samples": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 0 } }
+      }
+    }
+  }
+}

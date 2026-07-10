@@ -12,7 +12,7 @@ dependencies = []
 [project.scripts]
 semantifx-inference = "semantifx_inference.cli:main"
 semantifx-worker = "semantifx_inference.worker:main"
+semantifx-benchmark = "semantifx_inference.benchmark:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

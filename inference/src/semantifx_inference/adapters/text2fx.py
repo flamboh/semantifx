@@ -2,10 +2,63 @@ import contextlib
 import io
 import os
 from pathlib import Path
+import random
 import sys
+import threading
 from typing import Any, Dict, List, Tuple
 
 from ..errors import SemantiFXError
+
+
+_MODEL_CACHE = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+_MODEL_CONTEXT = threading.local()
+
+
+def _seed_model_runtime(text2fx_main, seed):
+    if seed is None:
+        return
+    random.seed(seed)
+    text2fx_main.np.random.seed(seed)
+    text2fx_main.torch.manual_seed(seed)
+    if text2fx_main.torch.cuda.is_available():
+        text2fx_main.torch.cuda.manual_seed_all(seed)
+
+
+def _install_model_cache(text2fx_main):
+    """Patch Text2FX's model factory with a process-local caching wrapper.
+
+    Text2FX's optimization function resolves ``get_model`` from its own module
+    globals on every call. Replacing that one factory preserves the sibling
+    package while allowing a persistent JSONL worker to reuse loaded CLAP
+    weights. The wrapper is idempotent because adapters are short-lived.
+    """
+    current = text2fx_main.get_model
+    if getattr(current, "_semantifx_model_cache", False):
+        return current
+
+    original = current
+
+    def cached_get_model(model_choice):
+        key = (original, model_choice)
+        with _MODEL_CACHE_LOCK:
+            if key in _MODEL_CACHE:
+                cached_get_model.cache_hits += 1
+                model = _MODEL_CACHE[key]
+            else:
+                cached_get_model.cache_misses += 1
+                model = original(model_choice)
+                _MODEL_CACHE[key] = model
+        # Model construction can consume RNG state. Seed immediately after the
+        # factory returns so cold and warm requests start optimization equally.
+        _seed_model_runtime(text2fx_main, getattr(_MODEL_CONTEXT, "random_seed", None))
+        return model
+
+    cached_get_model._semantifx_model_cache = True
+    cached_get_model.cache_hits = 0
+    cached_get_model.cache_misses = 0
+    text2fx_main.get_model = cached_get_model
+    return cached_get_model
 
 
 def _default_repo() -> Path:
@@ -69,6 +122,7 @@ class Text2FXAdapter:
             sys.path.insert(0, repo_string)
         try:
             from text2fx.apply import main as apply_text2fx
+            import text2fx.__main__ as text2fx_main
         except (ImportError, ModuleNotFoundError) as exc:
             missing = getattr(exc, "name", None) or str(exc)
             raise SemantiFXError(
@@ -81,7 +135,7 @@ class Text2FXAdapter:
                 ],
                 {"repo": str(self.repo), "missing_module": missing, "python": sys.executable},
             ) from exc
-        return apply_text2fx
+        return apply_text2fx, _install_model_cache(text2fx_main)
 
     def analyze(self, request: dict) -> Tuple[List[dict], Dict[str, object], List[str], str]:
         audio_path = Path(request["audio"]["path"]).expanduser()
@@ -98,19 +152,25 @@ class Text2FXAdapter:
         stderr_capture = io.StringIO()
         try:
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
-                apply_text2fx = self._load()
-                _signal, _raw_parameters, parameter_map = apply_text2fx(
-                    audio_path=audio_path,
-                    fx_chain=request["effects"],
-                    text_target=request["prompt"],
-                    learning_rate=options.get("learning_rate", 0.01),
-                    params_init_type=options.get("parameter_initialization", "zeros"),
-                    param_reg_weight=options.get("parameter_regularization", 0.0),
-                    roll_amt=options.get("roll_samples"),
-                    n_iters=options.get("iterations", 100),
-                    criterion=options.get("criterion", "cosine-sim"),
-                    model=options.get("model", "ms_clap"),
-                )
+                apply_text2fx, model_loader = self._load()
+                cache_hits_before = model_loader.cache_hits
+                cache_misses_before = model_loader.cache_misses
+                _MODEL_CONTEXT.random_seed = options.get("random_seed")
+                try:
+                    _signal, _raw_parameters, parameter_map = apply_text2fx(
+                        audio_path=audio_path,
+                        fx_chain=request["effects"],
+                        text_target=request["prompt"],
+                        learning_rate=options.get("learning_rate", 0.01),
+                        params_init_type=options.get("parameter_initialization", "zeros"),
+                        param_reg_weight=options.get("parameter_regularization", 0.0),
+                        roll_amt=options.get("roll_samples"),
+                        n_iters=options.get("iterations", 100),
+                        criterion=options.get("criterion", "cosine-sim"),
+                        model=options.get("model", "ms_clap"),
+                    )
+                finally:
+                    del _MODEL_CONTEXT.random_seed
         except SemantiFXError:
             raise
         except Exception as exc:
@@ -155,6 +215,9 @@ class Text2FXAdapter:
                 "model": options.get("model", "ms_clap"),
                 "criterion": options.get("criterion", "cosine-sim"),
                 "iterations": options.get("iterations", 100),
+                "random_seed": options.get("random_seed"),
+                "model_cache_hit": model_loader.cache_hits > cache_hits_before,
+                "model_cache_miss": model_loader.cache_misses > cache_misses_before,
             },
             [],
             diagnostics,

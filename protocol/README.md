@@ -20,6 +20,10 @@ An analysis request contains:
 - `effects`: an ordered list of effect identifiers; version 1 supports `eq`
 - `options`: optional backend and Text2FX optimization settings
 
+`options.random_seed` accepts an unsigned 32-bit integer. The Text2FX adapter
+applies it after model lookup so a cold model load and a warm cached request
+begin optimization from the same random state.
+
 Unknown fields are rejected so that host/worker skew fails visibly. The host is
 responsible for excerpt selection in version 1. Paths are passed as data and
 are never interpreted by a shell.

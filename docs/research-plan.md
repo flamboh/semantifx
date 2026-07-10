@@ -41,3 +41,10 @@ confidence scores.
 Before recording participants or treating interviews as publishable human-
 subjects research, obtain the appropriate institutional determination.
 
+## First measured baseline
+
+The initial Apple Silicon CPU measurements and reproducible benchmark commands
+are recorded in [benchmark-baseline.md](benchmark-baseline.md). The strongest
+early engineering result is that retaining CLAP in a persistent worker removes
+most repeated-request startup latency.
+

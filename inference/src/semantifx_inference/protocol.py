@@ -19,6 +19,7 @@ _OPTION_FIELDS = {
     "parameter_initialization",
     "parameter_regularization",
     "roll_samples",
+    "random_seed",
 }
 _BACKENDS = {"mock", "text2fx"}
 _MODELS = {"ms_clap", "laion_clap"}
@@ -117,6 +118,12 @@ def validate_request(value: Any) -> Dict[str, Any]:
         or options["roll_samples"] < 0
     ):
         _fail("options.roll_samples must be an integer greater than or equal to zero.", "options.roll_samples")
+    if "random_seed" in options and (
+        not isinstance(options["random_seed"], int)
+        or isinstance(options["random_seed"], bool)
+        or not 0 <= options["random_seed"] <= 4294967295
+    ):
+        _fail("options.random_seed must be an integer from 0 to 4294967295.", "options.random_seed")
     return value
 
 
