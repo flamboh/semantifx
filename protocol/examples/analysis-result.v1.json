@@ -11,10 +11,113 @@
       "name": "low_shelf_gain_db",
       "value": 4.0,
       "unit": "dB"
+    },
+    {
+      "effect": "eq",
+      "name": "low_shelf_cutoff_freq",
+      "value": 180.0,
+      "unit": "Hz"
+    },
+    {
+      "effect": "eq",
+      "name": "low_shelf_q_factor",
+      "value": 0.71,
+      "unit": "ratio"
+    },
+    {
+      "effect": "eq",
+      "name": "band0_gain_db",
+      "value": 0.5,
+      "unit": "dB"
+    },
+    {
+      "effect": "eq",
+      "name": "band0_cutoff_freq",
+      "value": 600.0,
+      "unit": "Hz"
+    },
+    {
+      "effect": "eq",
+      "name": "band0_q_factor",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "effect": "eq",
+      "name": "band1_gain_db",
+      "value": 2.5,
+      "unit": "dB"
+    },
+    {
+      "effect": "eq",
+      "name": "band1_cutoff_freq",
+      "value": 3000.0,
+      "unit": "Hz"
+    },
+    {
+      "effect": "eq",
+      "name": "band1_q_factor",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "effect": "eq",
+      "name": "band2_gain_db",
+      "value": 0.0,
+      "unit": "dB"
+    },
+    {
+      "effect": "eq",
+      "name": "band2_cutoff_freq",
+      "value": 9000.0,
+      "unit": "Hz"
+    },
+    {
+      "effect": "eq",
+      "name": "band2_q_factor",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "effect": "eq",
+      "name": "band3_gain_db",
+      "value": 0.0,
+      "unit": "dB"
+    },
+    {
+      "effect": "eq",
+      "name": "band3_cutoff_freq",
+      "value": 15000.0,
+      "unit": "Hz"
+    },
+    {
+      "effect": "eq",
+      "name": "band3_q_factor",
+      "value": 1.0,
+      "unit": "ratio"
+    },
+    {
+      "effect": "eq",
+      "name": "high_shelf_gain_db",
+      "value": -0.5,
+      "unit": "dB"
+    },
+    {
+      "effect": "eq",
+      "name": "high_shelf_cutoff_freq",
+      "value": 8000.0,
+      "unit": "Hz"
+    },
+    {
+      "effect": "eq",
+      "name": "high_shelf_q_factor",
+      "value": 0.71,
+      "unit": "ratio"
     }
   ],
   "metrics": {
-    "deterministic": true
+    "deterministic": true,
+    "matched_profile_words": ["warm", "clear"]
   },
   "warnings": [
     "Mock parameters are for integration testing and are not ML inference."

@@ -1,0 +1,80 @@
+cmake_minimum_required(VERSION 3.22)
+
+project(Semantifx VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+include(FetchContent)
+FetchContent_Declare(
+  JUCE
+  GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+  GIT_TAG 8.0.8
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(JUCE)
+
+set(SEMANTIFX_FORMATS Standalone VST3)
+if(APPLE)
+  list(APPEND SEMANTIFX_FORMATS AU)
+endif()
+
+juce_add_plugin(Semantifx
+  COMPANY_NAME "Semantifx"
+  BUNDLE_ID "org.semantifx.plugin"
+  PLUGIN_MANUFACTURER_CODE Smfx
+  PLUGIN_CODE Smeq
+  FORMATS ${SEMANTIFX_FORMATS}
+  PRODUCT_NAME "Semantifx"
+  DESCRIPTION "Musician-centered semantic equalizer"
+  IS_SYNTH FALSE
+  NEEDS_MIDI_INPUT FALSE
+  NEEDS_MIDI_OUTPUT FALSE
+  IS_MIDI_EFFECT FALSE
+  EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+  COPY_PLUGIN_AFTER_BUILD FALSE
+)
+
+target_sources(Semantifx PRIVATE
+  src/AnalysisResult.cpp
+  src/AnalysisResult.h
+  src/PluginEditor.cpp
+  src/PluginEditor.h
+  src/PluginProcessor.cpp
+  src/PluginProcessor.h
+  src/EqMath.h
+)
+
+target_compile_definitions(Semantifx PUBLIC
+  JUCE_REPORT_APP_USAGE=0
+  JUCE_USE_CURL=0
+  JUCE_WEB_BROWSER=0
+  JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_link_libraries(Semantifx PRIVATE
+  juce::juce_audio_utils
+  juce::juce_dsp
+  PUBLIC
+  juce::juce_recommended_config_flags
+  juce::juce_recommended_lto_flags
+  juce::juce_recommended_warning_flags
+)
+
+enable_testing()
+add_executable(semantifx_eq_tests tests/EqMathTests.cpp)
+target_include_directories(semantifx_eq_tests PRIVATE src)
+add_test(NAME semantifx_eq_tests COMMAND semantifx_eq_tests)
+
+add_executable(semantifx_protocol_tests
+  tests/AnalysisResultTests.cpp
+  src/AnalysisResult.cpp
+)
+target_include_directories(semantifx_protocol_tests PRIVATE src)
+target_link_libraries(semantifx_protocol_tests PRIVATE
+  juce::juce_core
+  juce::juce_recommended_config_flags
+  juce::juce_recommended_warning_flags
+)
+add_test(NAME semantifx_protocol_tests COMMAND semantifx_protocol_tests)

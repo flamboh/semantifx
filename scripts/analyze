@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+text2fx_dir=${SEMANTIFX_TEXT2FX_REPO:-"$repo_dir/../oss/text2fx"}
+python=${SEMANTIFX_TEXT2FX_PYTHON:-"$text2fx_dir/.venv/bin/python"}
+audio=${1:-"$text2fx_dir/assets/guitar.wav"}
+prompt=${2:-"warm, but keep it clear"}
+iterations=${3:-50}
+output=${4:-/tmp/semantifx-analysis.json}
+
+if [ ! -x "$python" ]; then
+  echo "Text2FX Python environment not found: $python" >&2
+  echo "Set SEMANTIFX_TEXT2FX_PYTHON to a working Python 3.9 interpreter." >&2
+  exit 1
+fi
+
+PYTHONPATH="$repo_dir/inference/src" "$python" -m semantifx_inference.cli analyze \
+  --backend text2fx \
+  --audio "$audio" \
+  --prompt "$prompt" \
+  --iterations "$iterations" \
+  --parameter-initialization zeros > "$output"
+
+echo "Analysis result: $output"
+echo "Import it with the plugin's 'Import Analysis…' button."
+

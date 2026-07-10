@@ -31,6 +31,10 @@ unit-bearing parameters or an `error` result with a stable error code,
 actionable remediation, and optional details. Fatal stream errors such as
 invalid JSON use `request_id: null` because no correlation id can be trusted.
 
+A successful version 1 result contains exactly the 18 canonical controls for
+one `dasp-pytorch` six-band `ParametricEQ`. Partial snapshots are rejected so a
+host never applies half of a suggestion.
+
 Parameter names match `dasp-pytorch`'s `ParametricEQ` controls. This keeps mock
 and Text2FX results interchangeable while the JUCE DSP implementation is being
 validated for parity.

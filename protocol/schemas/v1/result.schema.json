@@ -14,13 +14,36 @@
     "elapsed_ms": { "type": "number", "minimum": 0 },
     "parameters": {
       "type": "array",
+      "minItems": 18,
+      "maxItems": 18,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["effect", "name", "value", "unit"],
         "properties": {
-          "effect": { "type": "string", "minLength": 1 },
-          "name": { "type": "string", "minLength": 1 },
+          "effect": { "const": "eq" },
+          "name": {
+            "enum": [
+              "low_shelf_gain_db",
+              "low_shelf_cutoff_freq",
+              "low_shelf_q_factor",
+              "band0_gain_db",
+              "band0_cutoff_freq",
+              "band0_q_factor",
+              "band1_gain_db",
+              "band1_cutoff_freq",
+              "band1_q_factor",
+              "band2_gain_db",
+              "band2_cutoff_freq",
+              "band2_q_factor",
+              "band3_gain_db",
+              "band3_cutoff_freq",
+              "band3_q_factor",
+              "high_shelf_gain_db",
+              "high_shelf_cutoff_freq",
+              "high_shelf_q_factor"
+            ]
+          },
           "value": { "type": "number" },
           "unit": { "enum": ["dB", "Hz", "ratio", "unitless"] }
         }
