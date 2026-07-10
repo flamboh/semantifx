@@ -1,0 +1,22 @@
+{
+  "protocol_version": "1",
+  "type": "analysis_result",
+  "request_id": "demo-001",
+  "status": "ok",
+  "backend": "mock",
+  "elapsed_ms": 0.42,
+  "parameters": [
+    {
+      "effect": "eq",
+      "name": "low_shelf_gain_db",
+      "value": 4.0,
+      "unit": "dB"
+    }
+  ],
+  "metrics": {
+    "deterministic": true
+  },
+  "warnings": [
+    "Mock parameters are for integration testing and are not ML inference."
+  ]
+}

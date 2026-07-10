@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semantifx-inference"
+version = "0.1.0"
+description = "Local JSONL inference worker for SemantiFX"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+semantifx-inference = "semantifx_inference.cli:main"
+semantifx-worker = "semantifx_inference.worker:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

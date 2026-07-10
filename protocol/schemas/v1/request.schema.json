@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semantifx.local/protocol/v1/request.schema.json",
+  "title": "SemantiFX analysis request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "type", "request_id", "prompt", "audio", "effects"],
+  "properties": {
+    "protocol_version": { "const": "1" },
+    "type": { "const": "analyze" },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "effects": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": { "enum": ["eq"] }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": { "enum": ["mock", "text2fx"] },
+        "model": { "enum": ["ms_clap", "laion_clap"] },
+        "criterion": { "enum": ["cosine-sim", "directional_loss", "standard"] },
+        "iterations": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "learning_rate": { "type": "number", "exclusiveMinimum": 0 },
+        "parameter_initialization": { "enum": ["zeros", "random", "super_random"] },
+        "parameter_regularization": { "type": "number", "minimum": 0 },
+        "roll_samples": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
