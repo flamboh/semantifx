@@ -1,0 +1,19 @@
+.DS_Store
+.idea/
+.vscode/
+
+# CMake / JUCE
+build/
+cmake-build-*/
+*.jucer
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Prototype runtime files
+*.log
+*.wav
+
