@@ -39,6 +39,7 @@ juce_add_plugin(Semantifx
 target_sources(Semantifx PRIVATE
   src/AnalysisResult.cpp
   src/AnalysisResult.h
+  src/CaptureBuffer.h
   src/PluginEditor.cpp
   src/PluginEditor.h
   src/PluginProcessor.cpp
@@ -51,6 +52,10 @@ target_compile_definitions(Semantifx PUBLIC
   JUCE_USE_CURL=0
   JUCE_WEB_BROWSER=0
   JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_compile_definitions(Semantifx PRIVATE
+  SEMANTIFX_DEVELOPMENT_REPO_PATH="${CMAKE_CURRENT_SOURCE_DIR}/.."
 )
 
 target_link_libraries(Semantifx PRIVATE
@@ -78,3 +83,17 @@ target_link_libraries(semantifx_protocol_tests PRIVATE
   juce::juce_recommended_warning_flags
 )
 add_test(NAME semantifx_protocol_tests COMMAND semantifx_protocol_tests)
+
+add_executable(semantifx_capture_tests tests/CaptureBufferTests.cpp)
+target_include_directories(semantifx_capture_tests PRIVATE src)
+add_test(NAME semantifx_capture_tests COMMAND semantifx_capture_tests)
+
+add_executable(semantifx_processor_tests tests/ProcessorStateTests.cpp)
+target_include_directories(semantifx_processor_tests PRIVATE src)
+target_compile_definitions(semantifx_processor_tests PRIVATE JucePlugin_Name="Semantifx")
+target_link_libraries(semantifx_processor_tests PRIVATE
+  Semantifx
+  juce::juce_audio_utils
+  juce::juce_dsp
+)
+add_test(NAME semantifx_processor_tests COMMAND semantifx_processor_tests)

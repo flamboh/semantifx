@@ -52,13 +52,22 @@ cmake --build plugin/build --config Debug --parallel 4
 open plugin/build/Semantifx_artefacts/Debug/Standalone/Semantifx.app
 ```
 
-Use **Import Analysis…** in the app to load `/tmp/semantifx-analysis.json`.
-The same build also produces AU and VST3 artifacts. Run all automated checks
-with `scripts/check`.
+To try the complete development flow, pass audio through the app or plugin,
+enter a prompt, click **Capture 5s**, and then click **Analyze**. The plugin
+runs Text2FX outside the audio and UI threads and applies the validated result.
+**Import Analysis…** can still load `/tmp/semantifx-analysis.json` directly.
+The same build produces AU and VST3 artifacts. Run all automated checks with
+`scripts/check`.
 
 ## Current integration edge
 
 The real inference worker and real-time plugin now share a strict, versioned
-18-parameter contract. Importing a result is intentionally manual in this
-slice. Audio capture, automatic worker process management, cancellation, and
-progress transport are the next vertical integration step.
+18-parameter contract. The development build captures audio, starts a one-shot
+local analyzer process, supports cancellation, and applies results
+automatically. It deliberately embeds this checkout's path and is not a
+distribution design. Packaging a persistent worker, streaming true inference
+progress, and replacing repository-relative paths are the next integration
+steps.
+
+See [the first measured baseline](docs/benchmark-baseline.md) and
+[plugin validation](docs/plugin-validation.md).

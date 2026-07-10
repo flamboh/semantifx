@@ -9,7 +9,7 @@
 
 namespace semantifx
 {
-class PluginEditor final : public juce::AudioProcessorEditor
+class PluginEditor final : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     explicit PluginEditor (PluginProcessor&);
@@ -33,9 +33,19 @@ private:
     std::vector<std::unique_ptr<Knob>> knobs;
     juce::ToggleButton bypassButton { "Bypass" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
-    juce::TextButton importButton { "Import Analysis\u2026" };
+    juce::TextButton importButton { "Import Analysis..." };
     juce::Label importStatus;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::TextEditor promptEditor;
+    juce::TextButton captureButton { "Capture 5s" };
+    juce::TextButton analyzeButton { "Analyze" };
+    juce::TextButton cancelButton { "Cancel" };
+    juce::Label developmentLabel;
+    juce::Label developmentStatus;
+    double captureProgressValue {};
+    juce::ProgressBar captureProgress { captureProgressValue };
+
+    void timerCallback() override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };

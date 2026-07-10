@@ -93,9 +93,52 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     importStatus.setColour (juce::Label::textColourId, juce::Colour { 0xff8da6aa });
     addAndMakeVisible (importStatus);
 
+    developmentLabel.setText ("DEVELOPMENT ONLY - local Text2FX runner", juce::dontSendNotification);
+    developmentLabel.setColour (juce::Label::textColourId, juce::Colour { 0xffffc857 });
+    developmentLabel.setFont (juce::FontOptions { 13.0f, juce::Font::bold });
+    addAndMakeVisible (developmentLabel);
+
+    promptEditor.setTextToShowWhenEmpty ("Describe a change, e.g. warmer but keep it clear",
+                                         juce::Colour { 0xff6f858a });
+    promptEditor.setText ("warm, but keep it clear", false);
+    promptEditor.setTitle ("Text2FX prompt");
+    promptEditor.setMultiLine (false);
+    addAndMakeVisible (promptEditor);
+
+    captureButton.setTitle ("Capture five seconds from the plugin input");
+    captureButton.onClick = [this]
+    {
+        const auto result = pluginProcessor.startDevelopmentCapture();
+        developmentStatus.setText (result.wasOk() ? "Capturing input..." : result.getErrorMessage(),
+                                   juce::dontSendNotification);
+    };
+    addAndMakeVisible (captureButton);
+
+    analyzeButton.setTitle ("Run the local development analyzer with 50 iterations");
+    analyzeButton.onClick = [this]
+    {
+        const auto result = pluginProcessor.startDevelopmentAnalysis (promptEditor.getText(), 50);
+        developmentStatus.setText (result.wasOk() ? "Starting analysis..." : result.getErrorMessage(),
+                                   juce::dontSendNotification);
+    };
+    addAndMakeVisible (analyzeButton);
+
+    cancelButton.onClick = [this]
+    {
+        pluginProcessor.cancelDevelopmentWork();
+        developmentStatus.setText ("Cancelled", juce::dontSendNotification);
+    };
+    addAndMakeVisible (cancelButton);
+
+    captureProgress.setPercentageDisplay (true);
+    addAndMakeVisible (captureProgress);
+    developmentStatus.setColour (juce::Label::textColourId, juce::Colour { 0xff8da6aa });
+    addAndMakeVisible (developmentStatus);
+
     setResizable (true, true);
-    setResizeLimits (720, 560, 1400, 1000);
-    setSize (1080, 720);
+    setResizeLimits (760, 680, 1400, 1100);
+    setSize (1080, 850);
+    startTimerHz (12);
 }
 
 void PluginEditor::paint (juce::Graphics& graphics)
@@ -111,6 +154,9 @@ void PluginEditor::paint (juce::Graphics& graphics)
 
     graphics.setColour (juce::Colour { 0xff26343d });
     graphics.drawHorizontalLine (82, 24.0f, static_cast<float> (getWidth() - 24));
+    graphics.setColour (juce::Colour { 0xff18232b });
+    graphics.fillRoundedRectangle (getLocalBounds().toFloat().withTop (88.0f).withBottom (208.0f).reduced (20.0f, 4.0f),
+                                   7.0f);
 }
 
 void PluginEditor::resized()
@@ -119,8 +165,16 @@ void PluginEditor::resized()
     importButton.setBounds (getWidth() - 300, 25, 160, 34);
     importStatus.setBounds (getWidth() - 500, 55, 470, 24);
 
+    developmentLabel.setBounds (30, 94, 330, 22);
+    promptEditor.setBounds (30, 120, std::max (260, getWidth() - 510), 34);
+    captureButton.setBounds (getWidth() - 462, 120, 110, 34);
+    analyzeButton.setBounds (getWidth() - 344, 120, 100, 34);
+    cancelButton.setBounds (getWidth() - 236, 120, 90, 34);
+    captureProgress.setBounds (30, 166, 260, 22);
+    developmentStatus.setBounds (304, 162, getWidth() - 340, 30);
+
     auto area = getLocalBounds().reduced (20);
-    area.removeFromTop (78);
+    area.removeFromTop (194);
     constexpr int columns = 6;
     const auto cellWidth = area.getWidth() / columns;
     const auto rows = (static_cast<int> (knobs.size()) + columns - 1) / columns;
@@ -136,5 +190,24 @@ void PluginEditor::resized()
         knobs[index]->label.setBounds (cell.removeFromTop (25));
         knobs[index]->slider.setBounds (cell);
     }
+}
+
+void PluginEditor::timerCallback()
+{
+    captureProgressValue = pluginProcessor.getCaptureProgress();
+    const auto captureState = pluginProcessor.getCaptureState();
+    const auto analysisState = pluginProcessor.getDevelopmentAnalysisState();
+    const auto analysisActive = analysisState == DevelopmentAnalysisState::running
+                             || analysisState == DevelopmentAnalysisState::cancelling
+                             || analysisState == DevelopmentAnalysisState::applying;
+
+    captureButton.setEnabled (captureState != CaptureBuffer::State::capturing && ! analysisActive);
+    analyzeButton.setEnabled (captureState == CaptureBuffer::State::ready && ! analysisActive);
+    cancelButton.setEnabled (captureState == CaptureBuffer::State::capturing || analysisActive);
+
+    if (analysisState != DevelopmentAnalysisState::idle)
+        developmentStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
+    else if (captureState == CaptureBuffer::State::ready)
+        developmentStatus.setText ("Capture ready for analysis", juce::dontSendNotification);
 }
 } // namespace semantifx

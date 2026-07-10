@@ -42,3 +42,27 @@ The editor's **Import Analysis…** button accepts a complete successful
 protocol-v1 result, validates all 18 named EQ values and units, clamps values
 to the plugin's published parameter ranges, and notifies the host of each
 change. Import and parsing run on the UI thread, never the audio thread.
+
+## Development-only capture and analysis
+
+The editor also contains a deliberately prominent **DEVELOPMENT ONLY** panel
+for testing the complete local interaction:
+
+1. Enter a prompt and click **Capture 5s** while audio is passing through.
+2. After capture reaches 100%, click **Analyze**.
+3. The plugin writes a temporary WAV, invokes `scripts/analyze` with 50
+   iterations, validates its protocol-v1 JSON, and applies the result.
+4. **Cancel** stops capture immediately or asks the background analyzer process
+   to terminate.
+
+Capture storage is allocated by `prepareToPlay`; the audio callback only makes
+bounded copies into that storage and publishes atomic state/progress. WAV I/O,
+process launch, waiting, and JSON file reads happen on a dedicated background
+thread. Result application is posted back to JUCE's message thread.
+
+This is prototype infrastructure, not a distribution design. CMake embeds the
+local repository root as `SEMANTIFX_DEVELOPMENT_REPO_PATH`, so the resulting
+binary expects this checkout's `scripts/analyze` to remain at that path. The
+script in turn expects the sibling Text2FX environment described in the root
+project documentation. A release plugin must replace this checkout-specific
+path and subprocess arrangement with a packaged worker/service.

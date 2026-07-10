@@ -1,15 +1,21 @@
 #pragma once
 
 #include "AnalysisResult.h"
+#include "CaptureBuffer.h"
 #include "EqMath.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 
 #include <array>
+#include <memory>
 
 namespace semantifx
 {
+class DevelopmentAnalysisRunner;
+
+enum class DevelopmentAnalysisState { idle, running, cancelling, applying, succeeded, failed, cancelled };
+
 namespace parameter
 {
 inline constexpr auto lowGain = protocol::canonicalParameterNames[0];
@@ -74,7 +80,7 @@ class PluginProcessor final : public juce::AudioProcessor
 {
 public:
     PluginProcessor();
-    ~PluginProcessor() override = default;
+    ~PluginProcessor() override;
 
     void prepareToPlay (double sampleRate, int maximumExpectedSamplesPerBlock) override;
     void releaseResources() override {}
@@ -101,6 +107,13 @@ public:
 
     /** Applies a complete protocol-v1 EQ result. Must be called on the message thread. */
     juce::Result applyAnalysisResultJson (const juce::String& json);
+    juce::Result startDevelopmentCapture();
+    void cancelDevelopmentWork();
+    CaptureBuffer::State getCaptureState() const noexcept { return captureBuffer.getState(); }
+    float getCaptureProgress() const noexcept { return captureBuffer.getProgress(); }
+    juce::Result startDevelopmentAnalysis (const juce::String& prompt, int iterations = 50);
+    DevelopmentAnalysisState getDevelopmentAnalysisState() const noexcept;
+    juce::String getDevelopmentStatus() const;
 
     juce::AudioProcessorValueTreeState parameters;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -121,6 +134,10 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> outputGainSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMixSmooth;
     double currentSampleRate { 48000.0 };
+    CaptureBuffer captureBuffer;
+    std::unique_ptr<DevelopmentAnalysisRunner> developmentRunner;
+
+    friend class DevelopmentAnalysisRunner;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };
