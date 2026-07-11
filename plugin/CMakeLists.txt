@@ -33,6 +33,8 @@ juce_add_plugin(Semantifx
   NEEDS_MIDI_OUTPUT FALSE
   IS_MIDI_EFFECT FALSE
   EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+  MICROPHONE_PERMISSION_ENABLED TRUE
+  MICROPHONE_PERMISSION_TEXT "Semantifx needs microphone access to capture audio for effect analysis."
   COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
@@ -97,3 +99,12 @@ target_link_libraries(semantifx_processor_tests PRIVATE
   juce::juce_dsp
 )
 add_test(NAME semantifx_processor_tests COMMAND semantifx_processor_tests)
+
+if(APPLE)
+  add_test(
+    NAME semantifx_microphone_permission
+    COMMAND ${CMAKE_COMMAND}
+      "-DPLIST_PATH=$<TARGET_BUNDLE_DIR:Semantifx_Standalone>/Contents/Info.plist"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/MicrophonePermissionTest.cmake
+  )
+endif()

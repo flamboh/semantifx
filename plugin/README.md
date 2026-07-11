@@ -66,3 +66,9 @@ binary expects this checkout's `scripts/analyze` to remain at that path. The
 script in turn expects the sibling Text2FX environment described in the root
 project documentation. A release plugin must replace this checkout-specific
 path and subprocess arrangement with a packaged worker/service.
+
+On macOS, the standalone target declares why it needs microphone access. The
+first launch should display a system permission prompt; choose **Allow**, then
+use **Options** to select the intended input and output devices. AU and VST3
+instances receive audio from their host and do not request microphone access
+themselves.
