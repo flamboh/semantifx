@@ -48,7 +48,7 @@ change. Import and parsing run on the UI thread, never the audio thread.
 The editor also contains a deliberately prominent **DEVELOPMENT ONLY** panel
 for testing the complete local interaction:
 
-1. Enter a prompt and click **Capture 5s** while audio is passing through.
+1. Enter a prompt and click **Capture 10s** while audio is passing through.
 2. After capture reaches 100%, click **Analyze**.
 3. The plugin writes a temporary WAV, invokes `scripts/analyze` with 50
    iterations, validates its protocol-v1 JSON, and applies the result.

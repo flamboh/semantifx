@@ -105,7 +105,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     promptEditor.setMultiLine (false);
     addAndMakeVisible (promptEditor);
 
-    captureButton.setTitle ("Capture five seconds from the plugin input");
+    captureButton.setTitle ("Capture ten seconds from the plugin input");
     captureButton.onClick = [this]
     {
         const auto result = pluginProcessor.startDevelopmentCapture();

@@ -53,7 +53,7 @@ open plugin/build/Semantifx_artefacts/Debug/Standalone/Semantifx.app
 ```
 
 To try the complete development flow, pass audio through the app or plugin,
-enter a prompt, click **Capture 5s**, and then click **Analyze**. The plugin
+enter a prompt, click **Capture 10s**, and then click **Analyze**. The plugin
 runs Text2FX outside the audio and UI threads and applies the validated result.
 **Import Analysis…** can still load `/tmp/semantifx-analysis.json` directly.
 The same build produces AU and VST3 artifacts. Run all automated checks with

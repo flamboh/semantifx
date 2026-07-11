@@ -155,7 +155,7 @@ class Text2FXAdapter:
                 apply_text2fx, model_loader = self._load()
                 cache_hits_before = model_loader.cache_hits
                 cache_misses_before = model_loader.cache_misses
-                _MODEL_CONTEXT.random_seed = options.get("random_seed")
+                _MODEL_CONTEXT.random_seed = options.get("random_seed", 0)
                 try:
                     _signal, _raw_parameters, parameter_map = apply_text2fx(
                         audio_path=audio_path,
@@ -168,6 +168,7 @@ class Text2FXAdapter:
                         n_iters=options.get("iterations", 100),
                         criterion=options.get("criterion", "cosine-sim"),
                         model=options.get("model", "ms_clap"),
+                        random_seed=options.get("random_seed", 0),
                     )
                 finally:
                     del _MODEL_CONTEXT.random_seed
@@ -215,7 +216,7 @@ class Text2FXAdapter:
                 "model": options.get("model", "ms_clap"),
                 "criterion": options.get("criterion", "cosine-sim"),
                 "iterations": options.get("iterations", 100),
-                "random_seed": options.get("random_seed"),
+                "random_seed": options.get("random_seed", 0),
                 "model_cache_hit": model_loader.cache_hits > cache_hits_before,
                 "model_cache_miss": model_loader.cache_misses > cache_misses_before,
             },

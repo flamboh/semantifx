@@ -37,7 +37,7 @@ private:
     juce::Label importStatus;
     std::unique_ptr<juce::FileChooser> fileChooser;
     juce::TextEditor promptEditor;
-    juce::TextButton captureButton { "Capture 5s" };
+    juce::TextButton captureButton { "Capture 10s" };
     juce::TextButton analyzeButton { "Analyze" };
     juce::TextButton cancelButton { "Cancel" };
     juce::Label developmentLabel;

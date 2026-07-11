@@ -31,7 +31,7 @@ public:
             || state.load() == DevelopmentAnalysisState::applying)
             return juce::Result::fail ("Analysis is already running.");
         if (owner.captureBuffer.getState() != CaptureBuffer::State::ready)
-            return juce::Result::fail ("Capture five seconds of audio before analyzing.");
+            return juce::Result::fail ("Capture ten seconds of audio before analyzing.");
         if (newPrompt.trim().isEmpty())
             return juce::Result::fail ("Enter a description before analyzing.");
 
@@ -326,7 +326,7 @@ void PluginProcessor::prepareToPlay (double sampleRate, int)
         for (auto& filter : bank)
             filter.reset();
     resetSmoothers();
-    captureBuffer.prepare (currentSampleRate, std::max (1, std::min (getTotalNumInputChannels(), 2)), 5.0);
+    captureBuffer.prepare (currentSampleRate, std::max (1, std::min (getTotalNumInputChannels(), 2)), 10.0);
 }
 
 void PluginProcessor::resetSmoothers()

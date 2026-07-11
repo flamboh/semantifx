@@ -20,8 +20,8 @@ PYTHONPATH="$repo_dir/inference/src" "$python" -m semantifx_inference.cli analyz
   --audio "$audio" \
   --prompt "$prompt" \
   --iterations "$iterations" \
+  --random-seed 0 \
   --parameter-initialization zeros > "$output"
 
 echo "Analysis result: $output"
 echo "Import it with the plugin's 'Import Analysis…' button."
-

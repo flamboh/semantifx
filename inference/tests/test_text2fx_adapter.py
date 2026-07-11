@@ -5,6 +5,7 @@ import unittest
 
 from semantifx_inference.adapters.text2fx import _MODEL_CACHE, _install_model_cache, Text2FXAdapter
 from semantifx_inference.errors import SemantiFXError
+from semantifx_inference.cli import build_parser
 
 
 def request(path):
@@ -45,6 +46,12 @@ class Text2FXAdapterErrorTests(unittest.TestCase):
         first = _install_model_cache(module)
         second = _install_model_cache(module)
         self.assertIs(first, second)
+
+    def test_cli_defaults_to_a_reproducible_seed(self):
+        args = build_parser().parse_args(
+            ["analyze", "--audio", "/tmp/input.wav", "--prompt", "bright"]
+        )
+        self.assertEqual(args.random_seed, 0)
 
     def test_missing_audio_is_actionable(self):
         adapter = Text2FXAdapter(repo=Path("/checkout/does/not/matter"))

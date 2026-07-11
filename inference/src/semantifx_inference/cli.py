@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--parameter-initialization", choices=("zeros", "random", "super_random"), default="zeros")
     analyze_parser.add_argument("--parameter-regularization", type=float, default=0.0)
     analyze_parser.add_argument("--roll-samples", type=int, default=None)
-    analyze_parser.add_argument("--random-seed", type=int, default=None)
+    analyze_parser.add_argument("--random-seed", type=int, default=0)
     analyze_parser.add_argument("--diagnostics", action="store_true")
     return parser
 
