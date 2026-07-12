@@ -4,48 +4,73 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
 #include <memory>
-#include <vector>
 
 namespace semantifx
 {
+class EqResponseGraph;
+class SemanticLookAndFeel;
+
 class PluginEditor final : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     explicit PluginEditor (PluginProcessor&);
-    ~PluginEditor() override = default;
+    ~PluginEditor() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;
 
 private:
-    struct Knob
+    struct ParameterControl
     {
-        Knob (PluginEditor&, juce::AudioProcessorValueTreeState&, const char* parameterID,
-              const juce::String& displayName, const juce::String& suffix);
+        ParameterControl (PluginEditor&, juce::AudioProcessorValueTreeState&, const char* parameterID,
+                          const juce::String& displayName, const juce::String& suffix);
 
         juce::Slider slider;
         juce::Label label;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     };
 
+    void selectBand (int);
+    void beginCapture();
+    void beginAnalysis();
+    void cancelWork();
+    void timerCallback() override;
+    void updateWorkflowState();
+
     PluginProcessor& pluginProcessor;
-    std::vector<std::unique_ptr<Knob>> knobs;
-    juce::ToggleButton bypassButton { "Bypass" };
+    std::unique_ptr<SemanticLookAndFeel> semanticLookAndFeel;
+    std::unique_ptr<EqResponseGraph> responseGraph;
+    std::array<std::unique_ptr<ParameterControl>, 18> bandControls;
+    std::unique_ptr<ParameterControl> mixControl;
+    std::unique_ptr<ParameterControl> outputControl;
+    std::array<juce::TextButton, 6> bandButtons;
+    int selectedBand {};
+
+    juce::Label productLabel;
+    juce::Label subtitleLabel;
+    juce::Label engineBadge;
+    juce::ToggleButton bypassButton { "Hear original" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
-    juce::TextButton importButton { "Import Analysis..." };
+    juce::TextButton importButton { "Import..." };
     juce::Label importStatus;
     std::unique_ptr<juce::FileChooser> fileChooser;
+
+    juce::Label workflowEyebrow;
     juce::TextEditor promptEditor;
-    juce::TextButton captureButton { "Capture 10s" };
-    juce::TextButton analyzeButton { "Analyze" };
+    juce::TextButton captureButton { "Listen 10s" };
+    juce::TextButton analyzeButton { "Shape sound" };
     juce::TextButton cancelButton { "Cancel" };
-    juce::Label developmentLabel;
-    juce::Label developmentStatus;
+    juce::Label workflowStatus;
     double captureProgressValue {};
     juce::ProgressBar captureProgress { captureProgressValue };
+    juce::Label selectedBandLabel;
+    juce::Label lastDirectionLabel;
+    juce::TooltipWindow tooltipWindow { this, 650 };
 
-    void timerCallback() override;
+    DevelopmentAnalysisState previousAnalysisState { DevelopmentAnalysisState::idle };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };

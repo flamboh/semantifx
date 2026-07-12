@@ -1,4 +1,5 @@
 #include "EqMath.h"
+#include "EqGraphMath.h"
 
 #include <cassert>
 #include <cmath>
@@ -37,6 +38,20 @@ int main()
     assert (close (boostedPeak.a2, 0.911675333976746));
     assert (close (high.b0, 0.613755762577057));
     assert (close (high.a1, -0.966220736503601));
+
+    using namespace semantifx::eq::graph;
+    assert (std::abs (frequencyToUnit (20.0)) < 1.0e-12);
+    assert (std::abs (frequencyToUnit (20000.0) - 1.0) < 1.0e-12);
+    assert (std::abs (unitToFrequency (frequencyToUnit (1000.0)) - 1000.0) < 1.0e-9);
+    assert (std::abs (gainToUnit (24.0)) < 1.0e-12);
+    assert (std::abs (unitToGain (gainToUnit (-6.0)) + 6.0) < 1.0e-12);
+
+    std::array<Band, 6> graphBands {};
+    for (auto& band : graphBands)
+        band = { 0.0, 1000.0, 0.7071 };
+    assert (std::abs (combinedMagnitudeDb (graphBands, 1000.0, sampleRate)) < 1.0e-8);
+    graphBands[2] = { 6.0, 1000.0, 1.0 };
+    assert (std::abs (combinedMagnitudeDb (graphBands, 1000.0, sampleRate) - 6.0) < 0.01);
 
     std::cout << "All Semantifx EQ math tests passed\n";
 }

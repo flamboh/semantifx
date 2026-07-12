@@ -47,6 +47,7 @@ target_sources(Semantifx PRIVATE
   src/PluginProcessor.cpp
   src/PluginProcessor.h
   src/EqMath.h
+  src/EqGraphMath.h
 )
 
 target_compile_definitions(Semantifx PUBLIC
