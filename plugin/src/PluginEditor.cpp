@@ -159,6 +159,14 @@ public:
         repaint();
     }
 
+    void setAnalysisPreview (std::optional<std::array<eq::graph::Band, 6>> bands,
+                             int step = 0, int totalSteps = 0)
+    {
+        analysisPreview = std::move (bands);
+        previewStep = step;
+        previewTotalSteps = totalSteps;
+    }
+
     void resized() override { updateNodePositions(); }
 
     void paint (juce::Graphics& g) override
@@ -194,34 +202,55 @@ public:
                         juce::Justification::centredRight);
         }
 
-        const auto bands = readBands();
         const auto sampleRate = owner.getSampleRate() > 0.0 ? owner.getSampleRate() : 48000.0;
-        juce::Path fill, curve;
-        constexpr int points = 320;
-        for (int point = 0; point < points; ++point)
+        const auto drawResponse = [&] (const std::array<eq::graph::Band, 6>& bands,
+                                       juce::Colour colour, float width, float fillAlpha)
         {
-            const auto unit = static_cast<double> (point) / static_cast<double> (points - 1);
-            const auto frequency = eq::graph::unitToFrequency (unit);
-            const auto db = juce::jlimit (-24.0, 24.0,
-                                          eq::graph::combinedMagnitudeDb (bands, frequency, sampleRate));
-            const auto x = static_cast<float> (plot.getX() + unit * plot.getWidth());
-            const auto y = static_cast<float> (plot.getY() + eq::graph::gainToUnit (db) * plot.getHeight());
-            if (point == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
+            juce::Path fill, curve;
+            constexpr int points = 320;
+            for (int point = 0; point < points; ++point)
+            {
+                const auto unit = static_cast<double> (point) / static_cast<double> (points - 1);
+                const auto frequency = eq::graph::unitToFrequency (unit);
+                const auto db = juce::jlimit (-24.0, 24.0,
+                                              eq::graph::combinedMagnitudeDb (bands, frequency, sampleRate));
+                const auto x = static_cast<float> (plot.getX() + unit * plot.getWidth());
+                const auto y = static_cast<float> (plot.getY() + eq::graph::gainToUnit (db) * plot.getHeight());
+                if (point == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
+            }
+            if (fillAlpha > 0.0f)
+            {
+                fill = curve;
+                fill.lineTo (plot.getRight(), plot.getCentreY());
+                fill.lineTo (plot.getX(), plot.getCentreY());
+                fill.closeSubPath();
+                g.setColour (colour.withAlpha (fillAlpha));
+                g.fillPath (fill);
+            }
+            g.setColour (colour);
+            g.strokePath (curve, juce::PathStrokeType { width, juce::PathStrokeType::curved,
+                                                        juce::PathStrokeType::rounded });
+        };
+
+        const auto currentBands = readBands();
+        if (analysisPreview.has_value())
+        {
+            drawResponse (currentBands, palette::muted.withAlpha (0.52f), 1.5f, 0.0f);
+            drawResponse (*analysisPreview, palette::primary, 2.5f, 0.08f);
         }
-        fill = curve;
-        fill.lineTo (plot.getRight(), plot.getCentreY());
-        fill.lineTo (plot.getX(), plot.getCentreY());
-        fill.closeSubPath();
-        g.setColour (palette::primary.withAlpha (0.08f));
-        g.fillPath (fill);
-        g.setColour (palette::primary);
-        g.strokePath (curve, juce::PathStrokeType { 2.5f, juce::PathStrokeType::curved,
-                                                    juce::PathStrokeType::rounded });
+        else
+        {
+            drawResponse (currentBands, palette::primary, 2.5f, 0.08f);
+        }
 
         g.setColour (palette::muted);
         g.setFont (juce::FontOptions { 11.0f, juce::Font::bold });
-        g.drawText ("COMBINED RESPONSE", juce::roundToInt (plot.getX()) + 9,
-                    juce::roundToInt (plot.getY()) + 7, 170, 18,
+        const auto graphLabel = analysisPreview.has_value()
+            ? "OPTIMIZATION PREVIEW  |  " + juce::String { previewStep } + " / "
+                + juce::String { previewTotalSteps }
+            : "COMBINED RESPONSE";
+        g.drawText (graphLabel, juce::roundToInt (plot.getX()) + 9,
+                    juce::roundToInt (plot.getY()) + 7, 320, 18,
                     juce::Justification::centredLeft);
     }
 
@@ -321,6 +350,9 @@ private:
     PluginProcessor& owner;
     std::function<void (int)> onSelectionChanged;
     std::array<std::unique_ptr<Node>, 6> nodes;
+    std::optional<std::array<eq::graph::Band, 6>> analysisPreview;
+    int previewStep {};
+    int previewTotalSteps {};
     int selectedBand {};
 };
 
@@ -437,7 +469,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     captureButton.onClick = [this] { beginCapture(); };
     addAndMakeVisible (captureButton);
     analyzeButton.setTitle ("Shape sound from description");
-    analyzeButton.setDescription ("Run the local 50-iteration Text2FX analysis on the captured audio");
+    analyzeButton.setDescription ("Run the local 600-iteration Text2FX analysis on the captured audio");
     analyzeButton.setTooltip ("Analyze the capture using the typed direction");
     analyzeButton.setColour (juce::TextButton::buttonColourId, palette::primary);
     analyzeButton.setColour (juce::TextButton::textColourOffId, palette::background);
@@ -580,7 +612,7 @@ bool PluginEditor::keyPressed (const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::escapeKey)
     {
-        cancelWork();
+        cancelWork (false);
         return true;
     }
     return AudioProcessorEditor::keyPressed (key);
@@ -623,7 +655,8 @@ void PluginEditor::beginCapture()
 
 void PluginEditor::beginAnalysis()
 {
-    const auto result = pluginProcessor.startDevelopmentAnalysis (promptEditor.getText(), 50);
+    const auto direction = promptEditor.getText().trim();
+    const auto result = pluginProcessor.startDevelopmentAnalysis (direction);
     if (result.failed())
     {
         workflowEyebrow.setText ("ERROR", juce::dontSendNotification);
@@ -632,18 +665,42 @@ void PluginEditor::beginAnalysis()
     }
 }
 
-void PluginEditor::cancelWork()
+void PluginEditor::cancelWork (bool acceptLatestPreview)
 {
-    pluginProcessor.cancelDevelopmentWork();
-    workflowEyebrow.setText ("CANCELLED", juce::dontSendNotification);
-    workflowStatus.setText ("Listening or analysis cancelled", juce::dontSendNotification);
+    const auto progress = pluginProcessor.getDevelopmentProgress();
+    const auto canUsePreview = progress.has_value() && progress->hasParameters;
+    pluginProcessor.stopDevelopmentWork (acceptLatestPreview && canUsePreview);
 }
 
 void PluginEditor::timerCallback()
 {
     captureProgressValue = pluginProcessor.getCaptureProgress();
+    updateAnalysisPreview();
     responseGraph->refresh();
     updateWorkflowState();
+}
+
+void PluginEditor::updateAnalysisPreview()
+{
+    const auto state = pluginProcessor.getDevelopmentAnalysisState();
+    const auto progress = pluginProcessor.getDevelopmentProgress();
+    if ((state == DevelopmentAnalysisState::running || state == DevelopmentAnalysisState::cancelling)
+        && progress.has_value() && progress->hasParameters)
+    {
+        std::array<eq::graph::Band, 6> bands;
+        for (size_t index = 0; index < bands.size(); ++index)
+        {
+            const auto offset = index * 3;
+            bands[index] = { progress->preview.values[offset],
+                             progress->preview.values[offset + 1],
+                             progress->preview.values[offset + 2] };
+        }
+        responseGraph->setAnalysisPreview (bands, progress->step, progress->totalSteps);
+    }
+    else
+    {
+        responseGraph->setAnalysisPreview (std::nullopt);
+    }
 }
 
 void PluginEditor::updateWorkflowState()
@@ -654,10 +711,17 @@ void PluginEditor::updateWorkflowState()
     const auto analysisActive = analysisState == DevelopmentAnalysisState::running
                              || analysisState == DevelopmentAnalysisState::cancelling
                              || analysisState == DevelopmentAnalysisState::applying;
+    const auto interruptible = capturing || analysisState == DevelopmentAnalysisState::running;
     captureButton.setEnabled (! capturing && ! analysisActive);
     analyzeButton.setEnabled (captureState == CaptureBuffer::State::ready && ! analysisActive);
-    cancelButton.setVisible (capturing || analysisActive);
-    cancelButton.setEnabled (capturing || analysisActive);
+    cancelButton.setVisible (interruptible);
+    cancelButton.setEnabled (interruptible);
+    const auto latestProgress = pluginProcessor.getDevelopmentProgress();
+    const auto canUsePreview = ! capturing && latestProgress.has_value() && latestProgress->hasParameters;
+    cancelButton.setButtonText (canUsePreview ? "Use current" : "Cancel");
+    cancelButton.setTitle (canUsePreview ? "Stop and use the latest preview" : "Cancel capture or analysis");
+    cancelButton.setTooltip (canUsePreview ? "Stop optimizing and apply the latest visible EQ curve"
+                                           : "Stop the active listening or analysis task");
     captureProgress.setVisible (capturing);
     workflowStatus.setColour (juce::Label::textColourId, palette::muted);
 
@@ -667,10 +731,14 @@ void PluginEditor::updateWorkflowState()
         workflowStatus.setText ("Listening  |  " + juce::String { captureProgressValue * 10.0, 1 }
                                 + " / 10.0 seconds", juce::dontSendNotification);
     }
-    else if (analysisState == DevelopmentAnalysisState::running
-             || analysisState == DevelopmentAnalysisState::cancelling)
+    else if (analysisState == DevelopmentAnalysisState::running)
     {
         workflowEyebrow.setText ("ANALYZING", juce::dontSendNotification);
+        workflowStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
+    }
+    else if (analysisState == DevelopmentAnalysisState::cancelling)
+    {
+        workflowEyebrow.setText ("STOPPING", juce::dontSendNotification);
         workflowStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
     }
     else if (analysisState == DevelopmentAnalysisState::applying)
@@ -680,12 +748,11 @@ void PluginEditor::updateWorkflowState()
     }
     else if (analysisState == DevelopmentAnalysisState::succeeded)
     {
+        const auto direction = pluginProcessor.getLastAppliedDirection();
+        lastDirectionLabel.setText ("Last direction: " + direction, juce::dontSendNotification);
         workflowEyebrow.setText ("APPLIED", juce::dontSendNotification);
-        workflowStatus.setText ("Applied \"" + promptEditor.getText().trim() + "\" - edit any band below",
+        workflowStatus.setText (pluginProcessor.getDevelopmentStatus() + " - edit any band below",
                                 juce::dontSendNotification);
-        if (previousAnalysisState != DevelopmentAnalysisState::succeeded)
-            lastDirectionLabel.setText ("Last direction: " + promptEditor.getText().trim(),
-                                        juce::dontSendNotification);
     }
     else if (analysisState == DevelopmentAnalysisState::failed)
     {
@@ -708,6 +775,5 @@ void PluginEditor::updateWorkflowState()
         workflowEyebrow.setText ("READY", juce::dontSendNotification);
         workflowStatus.setText ("Play audio, then start listening", juce::dontSendNotification);
     }
-    previousAnalysisState = analysisState;
 }
 } // namespace semantifx

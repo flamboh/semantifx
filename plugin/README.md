@@ -50,22 +50,37 @@ for testing the complete local interaction:
 
 1. Enter a prompt and click **Capture 10s** while audio is passing through.
 2. After capture reaches 100%, click **Analyze**.
-3. The plugin writes a temporary WAV, invokes `scripts/analyze` with 50
-   iterations, validates its protocol-v1 JSON, and applies the result.
-4. **Cancel** stops capture immediately or asks the background analyzer process
-   to terminate.
+3. The plugin writes a temporary WAV, submits a 600-iteration request to a
+   persistent local worker, validates its protocol-v1 JSON, and applies the
+   result.
+4. Before the optimizer has a valid candidate, **Cancel** discards the request.
+   After the first candidate, it becomes **Use current** and applies the latest
+   visible curve after interrupting the optimizer. Escape always cancels and
+   discards.
+
+While inference runs, the status strip reports preparation, model loading,
+optimizer steps, elapsed time, and an estimated time remaining. A progress
+sidecar publishes intermediate parameter snapshots atomically; the graph draws
+them as a preview without changing audible or host-automated parameters until
+the final result has been validated.
 
 Capture storage is allocated by `prepareToPlay`; the audio callback only makes
 bounded copies into that storage and publishes atomic state/progress. WAV I/O,
-process launch, waiting, and JSON file reads happen on a dedicated background
-thread. Result application is posted back to JUCE's message thread.
+worker launch, waiting, and JSON file reads happen on a dedicated background
+thread. Result application is posted back to JUCE's message thread. The worker
+stays alive until the plugin instance is destroyed, so later requests reuse its
+loaded CLAP model. Interruption is cooperative at optimizer progress callbacks.
+If model loading or another non-cooperative phase does not stop within three
+seconds, the plugin terminates that worker and lazily starts a new one for the
+next request; this intentionally sacrifices the cache to keep the UI responsive.
 
 This is prototype infrastructure, not a distribution design. CMake embeds the
 local repository root as `SEMANTIFX_DEVELOPMENT_REPO_PATH`, so the resulting
-binary expects this checkout's `scripts/analyze` to remain at that path. The
+binary expects this checkout's `scripts/worker` to remain at that path. The
 script in turn expects the sibling Text2FX environment described in the root
-project documentation. A release plugin must replace this checkout-specific
-path and subprocess arrangement with a packaged worker/service.
+project documentation. Each plugin instance currently owns one worker; a release
+plugin must replace this checkout-specific arrangement with a packaged shared
+worker/service.
 
 On macOS, the standalone target declares why it needs microphone access. The
 first launch should display a system permission prompt; choose **Allow**, then

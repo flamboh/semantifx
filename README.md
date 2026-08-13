@@ -41,7 +41,7 @@ simulated session state.
 Run a real Text2FX analysis using the sibling checkout's existing environment:
 
 ```sh
-scripts/analyze ../oss/text2fx/assets/guitar.wav "warm like a hug" 50
+scripts/analyze ../oss/text2fx/assets/guitar.wav "warm like a hug" 600
 ```
 
 Build and open the JUCE standalone app:
@@ -53,7 +53,7 @@ open plugin/build/Semantifx_artefacts/Debug/Standalone/Semantifx.app
 ```
 
 To try the complete development flow, pass audio through the app or plugin,
-enter a prompt, click **Capture 10s**, and then click **Analyze**. The plugin
+enter a prompt, click **Listen 10s**, and then click **Shape sound**. The plugin
 runs Text2FX outside the audio and UI threads and applies the validated result.
 **Import Analysis…** can still load `/tmp/semantifx-analysis.json` directly.
 The same build produces AU and VST3 artifacts. Run all automated checks with
@@ -62,12 +62,13 @@ The same build produces AU and VST3 artifacts. Run all automated checks with
 ## Current integration edge
 
 The real inference worker and real-time plugin now share a strict, versioned
-18-parameter contract. The development build captures audio, starts a one-shot
-local analyzer process, supports cancellation, and applies results
-automatically. It deliberately embeds this checkout's path and is not a
-distribution design. Packaging a persistent worker, streaming true inference
-progress, and replacing repository-relative paths are the next integration
-steps.
+18-parameter contract. The development build captures audio, keeps a local
+inference worker alive across requests, reports model-loading and optimization
+progress, and previews the evolving EQ curve. Once a preview exists, **Use
+current** interrupts optimization and applies that visible curve; Escape cancels
+and discards it. The worker deliberately uses an atomic file spool and embeds
+this checkout's path. Packaging a shared worker and replacing repository-relative
+paths remain distribution work.
 
 See [the first measured baseline](docs/benchmark-baseline.md) and
 [plugin validation](docs/plugin-validation.md).

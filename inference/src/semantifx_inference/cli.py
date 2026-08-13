@@ -1,8 +1,10 @@
 import argparse
 import json
+from pathlib import Path
 import sys
 import uuid
 
+from .progress import ProgressFileWriter
 from .service import analyze
 
 
@@ -22,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--parameter-regularization", type=float, default=0.0)
     analyze_parser.add_argument("--roll-samples", type=int, default=None)
     analyze_parser.add_argument("--random-seed", type=int, default=0)
+    analyze_parser.add_argument("--progress-file", default=None)
     analyze_parser.add_argument("--diagnostics", action="store_true")
     return parser
 
@@ -50,7 +53,10 @@ def main(argv=None) -> int:
         "effects": ["eq"],
         "options": options,
     }
-    result, diagnostics = analyze(request, args.backend)
+    progress = ProgressFileWriter(Path(args.progress_file), request["request_id"]) if args.progress_file else None
+    if progress is not None:
+        progress("preparing", 0, args.iterations)
+    result, diagnostics = analyze(request, args.backend, progress)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     if args.diagnostics and diagnostics:
         print(diagnostics, file=sys.stderr)

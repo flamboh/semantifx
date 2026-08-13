@@ -16,6 +16,10 @@ PYTHONPATH=src python -m semantifx_inference.cli analyze \
   --prompt "warm, but keep it clear"
 ```
 
+Pass `--progress-file /tmp/semantifx-progress.json` to atomically publish the
+latest phase, optimizer step, total step count, and intermediate parameters.
+Progress is advisory and never replaces the final protocol result on stdout.
+
 Run a persistent worker and send one JSON request per line:
 
 ```sh
@@ -53,10 +57,28 @@ this repository. Override it with `SEMANTIFX_TEXT2FX_REPO=/absolute/path`.
 Model caches remain controlled by Text2FX and its ML libraries; do not place
 them in this repository.
 
+Progress preview and cooperative interruption require the sibling checkout's
+`text2fx.apply.main(..., progress_callback=...)` interface. The adapter fails
+with an actionable error when that interface is missing instead of silently
+running without interruption support.
+
 A persistent worker reuses each loaded CLAP model within its process. Result
 metrics report `model_cache_hit` and `model_cache_miss`; terminating the worker
 releases the model. Optional `options.random_seed` makes cold and warm
 optimization requests start from the same random state.
+
+The development plugin uses a private atomic-file adapter around that same
+long-lived process:
+
+```sh
+scripts/worker /tmp/semantifx-worker-spool
+```
+
+It consumes one `request.json` at a time and publishes request-correlated
+`progress.json` and `result.json` snapshots. A matching `stop.json` interrupts
+at the next optimizer progress callback without unloading the model. This spool
+interface is intentionally not part of the public protocol; it exists because
+JUCE's child-process interface cannot write to a worker's stdin.
 
 ## Benchmark
 

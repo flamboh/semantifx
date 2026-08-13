@@ -9,6 +9,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 
 namespace semantifx
 {
@@ -108,17 +109,20 @@ public:
     /** Applies a complete protocol-v1 EQ result. Must be called on the message thread. */
     juce::Result applyAnalysisResultJson (const juce::String& json);
     juce::Result startDevelopmentCapture();
-    void cancelDevelopmentWork();
+    void stopDevelopmentWork (bool acceptLatestPreview);
     CaptureBuffer::State getCaptureState() const noexcept { return captureBuffer.getState(); }
     float getCaptureProgress() const noexcept { return captureBuffer.getProgress(); }
-    juce::Result startDevelopmentAnalysis (const juce::String& prompt, int iterations = 50);
+    juce::Result startDevelopmentAnalysis (const juce::String& prompt, int iterations = 600);
     DevelopmentAnalysisState getDevelopmentAnalysisState() const noexcept;
     juce::String getDevelopmentStatus() const;
+    std::optional<protocol::AnalysisProgress> getDevelopmentProgress() const;
+    juce::String getLastAppliedDirection() const;
 
     juce::AudioProcessorValueTreeState parameters;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
+    juce::Result applyAnalysisResult (const protocol::AnalysisResult&);
     void resetSmoothers();
     void updateTargets() noexcept;
 

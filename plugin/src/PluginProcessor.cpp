@@ -12,15 +12,24 @@ class DevelopmentAnalysisRunner final : private juce::Thread, private juce::Asyn
 {
 public:
     explicit DevelopmentAnalysisRunner (PluginProcessor& processor)
-        : Thread ("Semantifx development analysis"), owner (processor)
+        : Thread ("Semantifx development analysis"), owner (processor),
+          spoolDirectory (juce::File::getSpecialLocation (juce::File::tempDirectory)
+                              .getNonexistentChildFile ("semantifx-worker", {}, true))
     {
+        spoolDirectory.createDirectory();
     }
 
     ~DevelopmentAnalysisRunner() override
     {
-        cancel();
-        stopThread (3000);
+        signalThreadShouldExit();
+        notify();
+        const auto stopped = stopThread (3000);
         cancelPendingUpdate();
+        if (stopped)
+        {
+            if (terminateWorker())
+                spoolDirectory.deleteRecursively();
+        }
     }
 
     juce::Result start (const juce::String& newPrompt, int newIterations)
@@ -38,10 +47,19 @@ public:
         {
             const juce::ScopedLock lock (dataLock);
             prompt = newPrompt.trim();
+            requestId = juce::Uuid {}.toString();
             iterations = std::clamp (newIterations, 1, 10000);
             status = "Writing captured audio...";
-            pendingResult.clear();
+            pendingResult.reset();
+            progress.reset();
+            applyingPreview = false;
+            analysisStartedMs = juce::Time::getMillisecondCounterHiRes();
+            optimizationStartedMs = 0.0;
+            lastEtaUpdateMs = 0.0;
+            remainingText.clear();
         }
+        stopRequested.store (false);
+        acceptLatestPreview.store (false);
         state.store (DevelopmentAnalysisState::running);
         if (! startThread())
         {
@@ -51,20 +69,19 @@ public:
         return juce::Result::ok();
     }
 
-    void cancel()
+    void stop (bool useLatestPreview)
     {
-        const auto current = state.load();
-        if (current != DevelopmentAnalysisState::running && current != DevelopmentAnalysisState::applying)
+        acceptLatestPreview.store (useLatestPreview);
+        stopRequested.store (true);
+        auto expected = DevelopmentAnalysisState::running;
+        if (! state.compare_exchange_strong (expected, DevelopmentAnalysisState::cancelling))
             return;
-        signalThreadShouldExit();
-        cancelPendingUpdate();
         {
             const juce::ScopedLock lock (dataLock);
-            pendingResult.clear();
-            status = current == DevelopmentAnalysisState::running ? "Cancelling analysis..." : "Analysis cancelled";
+            status = useLatestPreview ? "Stopping and keeping the latest preview..."
+                                      : "Cancelling analysis...";
         }
-        state.store (current == DevelopmentAnalysisState::running ? DevelopmentAnalysisState::cancelling
-                                                                   : DevelopmentAnalysisState::cancelled);
+        notify();
     }
 
     void resetStatus()
@@ -88,16 +105,265 @@ public:
         return status;
     }
 
+    std::optional<protocol::AnalysisProgress> getProgress() const
+    {
+        const juce::ScopedLock lock (dataLock);
+        return progress;
+    }
+
+    juce::String getLastAppliedDirection() const
+    {
+        const juce::ScopedLock lock (dataLock);
+        return lastAppliedDirection;
+    }
+
 private:
+    static juce::String durationText (double seconds)
+    {
+        const auto total = std::max (0, juce::roundToInt (seconds));
+        const auto minutes = total / 60;
+        const auto remainder = total % 60;
+        return minutes > 0 ? juce::String { minutes } + "m " + juce::String { remainder } + "s"
+                           : juce::String { remainder } + "s";
+    }
+
+    void readProgress()
+    {
+        const auto json = progressFile().loadFileAsString();
+        if (json.trim().isEmpty())
+            return;
+
+        protocol::AnalysisProgress next;
+        if (protocol::parseAnalysisProgress (json, next).failed())
+            return;
+
+        juce::String activeRequestId;
+        std::optional<protocol::AnalysisProgress> previous;
+        {
+            const juce::ScopedLock lock (dataLock);
+            activeRequestId = requestId;
+            previous = progress;
+        }
+        if (next.requestId != activeRequestId
+            || (previous.has_value() && (next.totalSteps != previous->totalSteps
+                                         || next.step < previous->step)))
+            return;
+
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        juce::String nextStatus;
+        if (next.phase == "preparing")
+        {
+            nextStatus = "Preparing captured audio...";
+        }
+        else if (next.phase == "loading_model")
+        {
+            nextStatus = "Loading MS-CLAP model  |  " + durationText ((now - analysisStartedMs) / 1000.0)
+                       + " elapsed";
+        }
+        else if (next.phase == "optimizing")
+        {
+            if (optimizationStartedMs <= 0.0)
+                optimizationStartedMs = now;
+            const auto elapsed = (now - analysisStartedMs) / 1000.0;
+            const auto optimizationElapsed = (now - optimizationStartedMs) / 1000.0;
+            const auto remaining = next.step > 0
+                ? optimizationElapsed * static_cast<double> (next.totalSteps - next.step)
+                    / static_cast<double> (next.step)
+                : 0.0;
+            if (next.step > 0 && next.step < next.totalSteps
+                && (remainingText.isEmpty() || now - lastEtaUpdateMs >= 1000.0))
+            {
+                remainingText = durationText (remaining);
+                lastEtaUpdateMs = now;
+            }
+            nextStatus = "Optimizing EQ  |  " + juce::String { next.step } + " / "
+                       + juce::String { next.totalSteps } + "  |  " + durationText (elapsed) + " elapsed";
+            if (! remainingText.isEmpty() && next.step < next.totalSteps)
+                nextStatus += "  |  ~" + remainingText + " left";
+        }
+        else if (next.phase == "finalizing")
+        {
+            nextStatus = "Finalizing result  |  " + juce::String { next.totalSteps } + " / "
+                       + juce::String { next.totalSteps };
+        }
+        else
+        {
+            nextStatus = next.phase;
+        }
+
+        const juce::ScopedLock lock (dataLock);
+        progress = std::move (next);
+        if (state.load() == DevelopmentAnalysisState::running)
+            status = std::move (nextStatus);
+    }
+
     void fail (const juce::String& message)
     {
-        if (state.load() == DevelopmentAnalysisState::cancelling)
-            return;
         const juce::ScopedLock lock (dataLock);
-        if (state.load() == DevelopmentAnalysisState::cancelling)
-            return;
         status = message;
         state.store (DevelopmentAnalysisState::failed);
+    }
+
+    juce::File requestFile() const { return spoolDirectory.getChildFile ("request.json"); }
+    juce::File progressFile() const { return spoolDirectory.getChildFile ("progress.json"); }
+    juce::File resultFile() const { return spoolDirectory.getChildFile ("result.json"); }
+    juce::File stopFile() const { return spoolDirectory.getChildFile ("stop.json"); }
+
+    void removeRequestFiles()
+    {
+        for (const auto& file : std::array<juce::File, 8> {
+                 requestFile(), progressFile(), resultFile(), stopFile(),
+                 requestFile().getSiblingFile ("request.json.tmp"),
+                 progressFile().getSiblingFile ("progress.json.tmp"),
+                 resultFile().getSiblingFile ("result.json.tmp"),
+                 stopFile().getSiblingFile ("stop.json.tmp") })
+            file.deleteFile();
+    }
+
+    bool writeJsonAtomically (const juce::File& destination, const juce::var& value)
+    {
+        const auto temporary = destination.getSiblingFile (destination.getFileName() + ".tmp");
+        temporary.deleteFile();
+        if (! temporary.replaceWithText (juce::JSON::toString (value, true)))
+            return false;
+        destination.deleteFile();
+        return temporary.moveFileTo (destination);
+    }
+
+    bool ensureWorker()
+    {
+        if (workerPoisoned.load())
+        {
+            if (workerProcess != nullptr && workerProcess->isRunning())
+            {
+                fail ("The previous development worker could not be terminated. Reopen the plugin before shaping again.");
+                return false;
+            }
+            workerProcess.reset();
+            workerPoisoned.store (false);
+        }
+        if (workerProcess != nullptr && workerProcess->isRunning())
+            return true;
+
+        workerProcess = std::make_unique<juce::ChildProcess>();
+        const auto script = juce::File { juce::String { SEMANTIFX_DEVELOPMENT_REPO_PATH } }
+                                .getChildFile ("scripts").getChildFile ("worker");
+        if (! script.existsAsFile())
+        {
+            fail ("Development worker not found at " + script.getFullPathName());
+            return false;
+        }
+
+        juce::StringArray arguments { script.getFullPathName(), spoolDirectory.getFullPathName() };
+        // The worker communicates through atomic spool files, so no pipe can fill and block cancellation.
+        if (! workerProcess->start (arguments, 0))
+        {
+            fail ("Could not launch the persistent development worker.");
+            workerProcess.reset();
+            return false;
+        }
+        return true;
+    }
+
+    bool terminateWorker()
+    {
+        if (workerProcess == nullptr)
+        {
+            workerPoisoned.store (false);
+            return true;
+        }
+        if (workerProcess->isRunning())
+        {
+            if (! workerProcess->kill() && workerProcess->isRunning())
+            {
+                workerPoisoned.store (true);
+                return false;
+            }
+            workerProcess->waitForProcessToFinish (1000);
+        }
+        if (workerProcess->isRunning())
+        {
+            workerPoisoned.store (true);
+            return false;
+        }
+        workerProcess.reset();
+        workerPoisoned.store (false);
+        return true;
+    }
+
+    bool publishRequest (const juce::File& captureFile)
+    {
+        juce::String localPrompt, localRequestId;
+        int localIterations {};
+        {
+            const juce::ScopedLock lock (dataLock);
+            localPrompt = prompt;
+            localRequestId = requestId;
+            localIterations = iterations;
+        }
+
+        auto request = juce::var { new juce::DynamicObject {} };
+        auto* object = request.getDynamicObject();
+        object->setProperty ("protocol_version", "1");
+        object->setProperty ("type", "analyze");
+        object->setProperty ("request_id", localRequestId);
+        object->setProperty ("prompt", localPrompt);
+
+        auto audio = juce::var { new juce::DynamicObject {} };
+        audio.getDynamicObject()->setProperty ("path", captureFile.getFullPathName());
+        object->setProperty ("audio", audio);
+        juce::Array<juce::var> effects;
+        effects.add ("eq");
+        object->setProperty ("effects", effects);
+
+        auto options = juce::var { new juce::DynamicObject {} };
+        auto* optionObject = options.getDynamicObject();
+        optionObject->setProperty ("backend", "text2fx");
+        optionObject->setProperty ("iterations", localIterations);
+        optionObject->setProperty ("model", "ms_clap");
+        optionObject->setProperty ("criterion", "cosine-sim");
+        optionObject->setProperty ("learning_rate", 0.01);
+        optionObject->setProperty ("parameter_initialization", "zeros");
+        optionObject->setProperty ("parameter_regularization", 0.0);
+        optionObject->setProperty ("random_seed", 0);
+        object->setProperty ("options", options);
+        return writeJsonAtomically (requestFile(), request);
+    }
+
+    bool publishStopRequest()
+    {
+        juce::String localRequestId;
+        {
+            const juce::ScopedLock lock (dataLock);
+            localRequestId = requestId;
+        }
+        auto value = juce::var { new juce::DynamicObject {} };
+        value.getDynamicObject()->setProperty ("request_id", localRequestId);
+        return writeJsonAtomically (stopFile(), value);
+    }
+
+    void resolveInterruption (const juce::String& activeRequestId)
+    {
+        std::optional<protocol::AnalysisProgress> latest;
+        {
+            const juce::ScopedLock lock (dataLock);
+            latest = progress;
+        }
+        if (acceptLatestPreview.load() && latest.has_value() && latest->hasParameters)
+        {
+            auto preview = latest->preview;
+            preview.requestId = activeRequestId;
+            queueApplication (std::move (preview), true, latest->step, latest->totalSteps,
+                              DevelopmentAnalysisState::cancelling);
+            return;
+        }
+
+        auto expected = DevelopmentAnalysisState::cancelling;
+        if (state.compare_exchange_strong (expected, DevelopmentAnalysisState::cancelled))
+        {
+            const juce::ScopedLock lock (dataLock);
+            status = "Analysis cancelled";
+        }
     }
 
     bool writeCapture (const juce::File& destination)
@@ -125,21 +391,12 @@ private:
 
     void run() override
     {
-        const auto markCancellationComplete = juce::ScopeGuard { [this]
-        {
-            if (state.load() == DevelopmentAnalysisState::cancelling)
-            {
-                const juce::ScopedLock lock (dataLock);
-                status = "Analysis cancelled";
-                state.store (DevelopmentAnalysisState::cancelled);
-            }
-        } };
         const auto captureFile = juce::File::createTempFile ("-semantifx-capture.wav");
-        const auto resultFile = juce::File::createTempFile ("-semantifx-result.json");
-        const auto removeTemporaryFiles = juce::ScopeGuard { [&]
+        bool preserveCapture {};
+        const auto removeCapture = juce::ScopeGuard { [&]
         {
-            captureFile.deleteFile();
-            resultFile.deleteFile();
+            if (! preserveCapture)
+                captureFile.deleteFile();
         } };
 
         if (! writeCapture (captureFile))
@@ -149,72 +406,152 @@ private:
         }
         if (threadShouldExit())
             return;
-
-        const auto script = juce::File { juce::String { SEMANTIFX_DEVELOPMENT_REPO_PATH } }
-                                .getChildFile ("scripts").getChildFile ("analyze");
-        if (! script.existsAsFile())
+        removeRequestFiles();
+        if (! ensureWorker())
+            return;
+        if (! publishRequest (captureFile))
         {
-            fail ("Development analyzer not found at " + script.getFullPathName());
+            fail ("Could not submit the analysis request to the development worker.");
             return;
         }
-
-        juce::String localPrompt;
-        int localIterations {};
         {
             const juce::ScopedLock lock (dataLock);
-            localPrompt = prompt;
-            localIterations = iterations;
-            status = "Running Text2FX (development mode)...";
+            status = "Waiting for persistent Text2FX worker...";
         }
 
-        juce::StringArray arguments;
-        arguments.add (script.getFullPathName());
-        arguments.add (captureFile.getFullPathName());
-        arguments.add (localPrompt);
-        arguments.add (juce::String { localIterations });
-        arguments.add (resultFile.getFullPathName());
-
-        juce::ChildProcess process;
-        // Do not capture pipes here: a blocking pipe read would make cancellation unreliable.
-        // The analyzer's machine-readable output is written directly to resultFile.
-        if (! process.start (arguments, 0))
-        {
-            fail ("Could not launch the development analyzer.");
-            return;
-        }
-
-        while (process.isRunning())
+        bool stopPublished = false;
+        double stopPublishedMs {};
+        while (! resultFile().existsAsFile())
         {
             if (threadShouldExit())
+                return;
+            if (stopRequested.load() && ! stopPublished)
             {
-                process.kill();
+                if (! publishStopRequest())
+                {
+                    if (! terminateWorker())
+                        preserveCapture = true;
+                    fail (preserveCapture
+                              ? "Could not interrupt or terminate the development worker. Reopen the plugin before shaping again."
+                              : "Could not send the interruption request; the development worker was restarted safely.");
+                    return;
+                }
+                stopPublished = true;
+                stopPublishedMs = juce::Time::getMillisecondCounterHiRes();
+            }
+            readProgress();
+            if (stopPublished && juce::Time::getMillisecondCounterHiRes() - stopPublishedMs >= 3000.0)
+            {
+                if (! terminateWorker())
+                {
+                    preserveCapture = true;
+                    fail ("The development worker did not stop. Reopen the plugin before shaping again.");
+                    return;
+                }
+                readProgress();
+                juce::String activeRequestId;
+                {
+                    const juce::ScopedLock lock (dataLock);
+                    activeRequestId = requestId;
+                }
+                resolveInterruption (activeRequestId);
                 return;
             }
-            process.waitForProcessToFinish (100);
+            if (workerProcess == nullptr || ! workerProcess->isRunning())
+            {
+                workerProcess.reset();
+                fail ("The persistent development worker stopped unexpectedly. Try shaping again to restart it.");
+                return;
+            }
+            wait (100);
         }
+        readProgress();
         if (threadShouldExit())
             return;
 
-        if (process.getExitCode() != 0)
-        {
-            fail ("Analyzer failed with exit code " + juce::String { process.getExitCode() }
-                  + ". Run scripts/analyze in Terminal for diagnostics.");
-            return;
-        }
-
-        const auto json = resultFile.loadFileAsString();
+        auto json = resultFile().loadFileAsString();
         if (json.trim().isEmpty())
         {
             fail ("Analyzer produced no protocol result.");
             return;
         }
 
+        juce::String activeRequestId;
         {
             const juce::ScopedLock lock (dataLock);
-            pendingResult = json;
-            status = "Applying analysis...";
+            activeRequestId = requestId;
         }
-        state.store (DevelopmentAnalysisState::applying);
+
+        juce::var resultRoot;
+        if (juce::JSON::parse (json, resultRoot).wasOk())
+        {
+            if (auto* object = resultRoot.getDynamicObject())
+            {
+                const auto returnedRequestId = object->getProperty ("request_id");
+                if (returnedRequestId.isString() && returnedRequestId.toString() != activeRequestId)
+                {
+                    resultFile().deleteFile();
+                    fail ("The persistent development worker returned a stale result. Try shaping again.");
+                    return;
+                }
+            }
+        }
+
+        protocol::AnalysisResult finalResult;
+        if (protocol::parseAnalysisResult (json, finalResult).wasOk()
+            && finalResult.requestId == activeRequestId)
+        {
+            auto expected = DevelopmentAnalysisState::running;
+            if (state.compare_exchange_strong (expected, DevelopmentAnalysisState::applying))
+            {
+                queueApplication (std::move (finalResult), false, 0, 0,
+                                  DevelopmentAnalysisState::applying);
+            }
+            else if (expected == DevelopmentAnalysisState::cancelling)
+            {
+                resolveInterruption (activeRequestId);
+            }
+            return;
+        }
+
+        juce::String cancelledRequestId;
+        if (protocol::parseAnalysisCancellation (json, cancelledRequestId).wasOk()
+            && cancelledRequestId == activeRequestId)
+        {
+            resolveInterruption (activeRequestId);
+            return;
+        }
+
+        auto errorMessage = juce::String { "The development worker returned an invalid result." };
+        juce::var errorRoot;
+        if (juce::JSON::parse (json, errorRoot).wasOk())
+            if (auto* object = errorRoot.getDynamicObject())
+            {
+                const auto errorValue = object->getProperty ("error");
+                if (auto* error = errorValue.getDynamicObject())
+                    if (error->getProperty ("message").isString())
+                        errorMessage = error->getProperty ("message").toString();
+            }
+        fail (errorMessage);
+    }
+
+    void queueApplication (protocol::AnalysisResult result, bool preview, int step, int totalSteps,
+                           DevelopmentAnalysisState expectedState)
+    {
+        if (expectedState != DevelopmentAnalysisState::applying)
+        {
+            auto expected = expectedState;
+            if (! state.compare_exchange_strong (expected, DevelopmentAnalysisState::applying))
+                return;
+        }
+        {
+            const juce::ScopedLock lock (dataLock);
+            pendingResult = std::move (result);
+            applyingPreview = preview;
+            appliedPreviewStep = step;
+            appliedPreviewTotal = totalSteps;
+            status = preview ? "Applying interrupted preview..." : "Applying analysis...";
+        }
         triggerAsyncUpdate();
     }
 
@@ -223,25 +560,54 @@ private:
         if (state.load() != DevelopmentAnalysisState::applying)
             return;
 
-        juce::String json;
+        std::optional<protocol::AnalysisResult> result;
+        bool preview {};
+        int previewStep {}, previewTotal {};
         {
             const juce::ScopedLock lock (dataLock);
-            json = pendingResult;
-            pendingResult.clear();
+            result = pendingResult;
+            pendingResult.reset();
+            preview = applyingPreview;
+            previewStep = appliedPreviewStep;
+            previewTotal = appliedPreviewTotal;
         }
-        const auto applied = owner.applyAnalysisResultJson (json);
+        const auto applied = result.has_value() ? owner.applyAnalysisResult (*result)
+                                                : juce::Result::fail ("No analysis result was ready to apply.");
         {
             const juce::ScopedLock lock (dataLock);
-            status = applied.wasOk() ? "Analysis applied" : applied.getErrorMessage();
+            if (applied.wasOk())
+            {
+                lastAppliedDirection = prompt;
+                status = preview ? "Applied preview at " + juce::String { previewStep } + " / "
+                                     + juce::String { previewTotal }
+                                 : "Analysis applied";
+            }
+            else
+            {
+                status = applied.getErrorMessage();
+            }
         }
         state.store (applied.wasOk() ? DevelopmentAnalysisState::succeeded
                                      : DevelopmentAnalysisState::failed);
     }
 
     PluginProcessor& owner;
+    const juce::File spoolDirectory;
+    std::unique_ptr<juce::ChildProcess> workerProcess;
     mutable juce::CriticalSection dataLock;
-    juce::String prompt, status, pendingResult;
-    int iterations { 50 };
+    juce::String prompt, requestId, status, lastAppliedDirection;
+    int iterations { 600 };
+    std::optional<protocol::AnalysisProgress> progress;
+    std::optional<protocol::AnalysisResult> pendingResult;
+    bool applyingPreview {};
+    int appliedPreviewStep {}, appliedPreviewTotal {};
+    double analysisStartedMs {};
+    double optimizationStartedMs {};
+    double lastEtaUpdateMs {};
+    juce::String remainingText;
+    std::atomic<bool> stopRequested { false };
+    std::atomic<bool> acceptLatestPreview { false };
+    std::atomic<bool> workerPoisoned { false };
     std::atomic<DevelopmentAnalysisState> state { DevelopmentAnalysisState::idle };
 };
 
@@ -430,6 +796,15 @@ juce::Result PluginProcessor::applyAnalysisResultJson (const juce::String& json)
     if (const auto parsed = protocol::parseAnalysisResult (json, result); parsed.failed())
         return parsed;
 
+    return applyAnalysisResult (result);
+}
+
+juce::Result PluginProcessor::applyAnalysisResult (const protocol::AnalysisResult& result)
+{
+    auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+    if (messageManager == nullptr || ! messageManager->isThisTheMessageThread())
+        return juce::Result::fail ("Analysis results must be applied on the message thread.");
+
     std::array<juce::RangedAudioParameter*, protocol::canonicalParameterNames.size()> targets {};
     std::array<float, protocol::canonicalParameterNames.size()> clampedValues {};
     for (size_t index = 0; index < protocol::canonicalParameterNames.size(); ++index)
@@ -463,10 +838,10 @@ juce::Result PluginProcessor::startDevelopmentCapture()
     return juce::Result::ok();
 }
 
-void PluginProcessor::cancelDevelopmentWork()
+void PluginProcessor::stopDevelopmentWork (bool acceptLatestPreview)
 {
     captureBuffer.cancel();
-    developmentRunner->cancel();
+    developmentRunner->stop (acceptLatestPreview);
 }
 
 juce::Result PluginProcessor::startDevelopmentAnalysis (const juce::String& prompt, int iterations)
@@ -482,6 +857,16 @@ DevelopmentAnalysisState PluginProcessor::getDevelopmentAnalysisState() const no
 juce::String PluginProcessor::getDevelopmentStatus() const
 {
     return developmentRunner->getStatus();
+}
+
+std::optional<protocol::AnalysisProgress> PluginProcessor::getDevelopmentProgress() const
+{
+    return developmentRunner->getProgress();
+}
+
+juce::String PluginProcessor::getLastAppliedDirection() const
+{
+    return developmentRunner->getLastAppliedDirection();
 }
 
 juce::AudioProcessorEditor* PluginProcessor::createEditor()

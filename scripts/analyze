@@ -6,8 +6,9 @@ text2fx_dir=${SEMANTIFX_TEXT2FX_REPO:-"$repo_dir/../oss/text2fx"}
 python=${SEMANTIFX_TEXT2FX_PYTHON:-"$text2fx_dir/.venv/bin/python"}
 audio=${1:-"$text2fx_dir/assets/guitar.wav"}
 prompt=${2:-"warm, but keep it clear"}
-iterations=${3:-50}
+iterations=${3:-600}
 output=${4:-/tmp/semantifx-analysis.json}
+progress=${5:-}
 
 if [ ! -x "$python" ]; then
   echo "Text2FX Python environment not found: $python" >&2
@@ -15,13 +16,19 @@ if [ ! -x "$python" ]; then
   exit 1
 fi
 
-PYTHONPATH="$repo_dir/inference/src" "$python" -m semantifx_inference.cli analyze \
+set -- \
   --backend text2fx \
   --audio "$audio" \
   --prompt "$prompt" \
   --iterations "$iterations" \
   --random-seed 0 \
-  --parameter-initialization zeros > "$output"
+  --parameter-initialization zeros
+if [ -n "$progress" ]; then
+  set -- "$@" --progress-file "$progress"
+fi
+
+PYTHONPATH="$repo_dir/inference/src" "$python" \
+  -m semantifx_inference.cli analyze "$@" > "$output"
 
 echo "Analysis result: $output"
 echo "Import it with the plugin's 'Import Analysis…' button."

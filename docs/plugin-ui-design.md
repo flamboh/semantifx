@@ -58,9 +58,11 @@ every parameter the model changed.
   recording.
 - The text field is the visual center and accepts natural language. Placeholder:
   `Describe a direction — “brighter, but keep the body”`.
-- `Shape sound` runs the existing 50-iteration local analysis. Return in the
+- `Shape sound` runs the 600-iteration local analysis. Return in the
   text field triggers it when a capture is ready.
-- `Cancel` appears/enables only while capture or analysis is active.
+- `Cancel` appears while capture or analysis is active. Once optimization has
+  produced a valid preview it becomes `Use current`, which stops and applies the
+  visible candidate; Escape remains a discard action.
 - Error text remains visible until a new action, rather than being encoded by
   color alone.
 

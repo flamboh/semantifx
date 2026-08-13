@@ -29,10 +29,26 @@ inline constexpr std::array<const char*, 18> canonicalParameterNames {{
 
 struct AnalysisResult
 {
+    juce::String requestId;
     std::array<double, canonicalParameterNames.size()> values {};
+};
+
+struct AnalysisProgress
+{
+    juce::String requestId;
+    juce::String phase;
+    int step {};
+    int totalSteps {};
+    bool hasParameters {};
+    AnalysisResult preview;
 };
 
 /** Parses a complete, successful protocol-v1 EQ result without applying it. */
 juce::Result parseAnalysisResult (const juce::String& json, AnalysisResult& destination);
-} // namespace semantifx::protocol
 
+/** Parses an advisory progress snapshot produced while an analysis is running. */
+juce::Result parseAnalysisProgress (const juce::String& json, AnalysisProgress& destination);
+
+/** Parses the terminal acknowledgement for a cooperatively interrupted request. */
+juce::Result parseAnalysisCancellation (const juce::String& json, juce::String& requestId);
+} // namespace semantifx::protocol

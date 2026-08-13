@@ -1,13 +1,15 @@
 import contextlib
 import io
+import inspect
 import os
 from pathlib import Path
 import random
 import sys
 import threading
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..errors import SemantiFXError
+from ..progress import AnalysisCancelled, ProgressCallback
 
 
 _MODEL_CACHE = {}
@@ -104,9 +106,36 @@ def _canonical_effect(name: str) -> str:
 class Text2FXAdapter:
     name = "text2fx"
 
-    def __init__(self, repo: Path = None) -> None:
+    def __init__(
+        self,
+        repo: Path = None,
+        progress: Optional[ProgressCallback] = None,
+    ) -> None:
         configured = os.environ.get("SEMANTIFX_TEXT2FX_REPO")
         self.repo = Path(configured).expanduser() if configured else (repo or _default_repo())
+        self.progress = progress
+
+    @staticmethod
+    def _parameters(parameter_map: dict) -> List[dict]:
+        parameters = []
+        for effect_name, effect_parameters in parameter_map.items():
+            if not isinstance(effect_parameters, dict):
+                raise SemantiFXError(
+                    "invalid_backend_result",
+                    "Text2FX returned an invalid parameter map.",
+                    ["Check the Text2FX adapter against the current sibling checkout."],
+                    {"effect": effect_name, "value_type": type(effect_parameters).__name__},
+                )
+            for name, value in effect_parameters.items():
+                parameters.append(
+                    {
+                        "effect": _canonical_effect(effect_name),
+                        "name": name,
+                        "value": _plain_value(value),
+                        "unit": _unit(name),
+                    }
+                )
+        return parameters
 
     def _load(self):
         package_dir = self.repo / "text2fx"
@@ -148,11 +177,28 @@ class Text2FXAdapter:
             )
 
         options = request.get("options", {})
+        total_steps = options.get("iterations", 100)
+        if self.progress is not None:
+            self.progress("loading_model", 0, total_steps, None)
+
+        def report_iteration(step, total, parameter_map):
+            if self.progress is not None:
+                self.progress("optimizing", step, total, self._parameters(parameter_map))
+
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         try:
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
                 apply_text2fx, model_loader = self._load()
+                if "progress_callback" not in inspect.signature(apply_text2fx).parameters:
+                    raise SemantiFXError(
+                        "text2fx_progress_api_unavailable",
+                        "The Text2FX checkout does not expose optimizer progress callbacks.",
+                        [
+                            "Use the SemantiFX-compatible Text2FX checkout that accepts progress_callback in text2fx.apply.main.",
+                        ],
+                        {"repo": str(self.repo)},
+                    )
                 cache_hits_before = model_loader.cache_hits
                 cache_misses_before = model_loader.cache_misses
                 _MODEL_CONTEXT.random_seed = options.get("random_seed", 0)
@@ -169,10 +215,11 @@ class Text2FXAdapter:
                         criterion=options.get("criterion", "cosine-sim"),
                         model=options.get("model", "ms_clap"),
                         random_seed=options.get("random_seed", 0),
+                        progress_callback=report_iteration,
                     )
                 finally:
                     del _MODEL_CONTEXT.random_seed
-        except SemantiFXError:
+        except (AnalysisCancelled, SemantiFXError):
             raise
         except Exception as exc:
             raise SemantiFXError(
@@ -191,24 +238,9 @@ class Text2FXAdapter:
                 },
             ) from exc
 
-        parameters = []
-        for effect_name, effect_parameters in parameter_map.items():
-            if not isinstance(effect_parameters, dict):
-                raise SemantiFXError(
-                    "invalid_backend_result",
-                    "Text2FX returned an invalid parameter map.",
-                    ["Check the Text2FX adapter against the current sibling checkout."],
-                    {"effect": effect_name, "value_type": type(effect_parameters).__name__},
-                )
-            for name, value in effect_parameters.items():
-                parameters.append(
-                    {
-                        "effect": _canonical_effect(effect_name),
-                        "name": name,
-                        "value": _plain_value(value),
-                        "unit": _unit(name),
-                    }
-                )
+        parameters = self._parameters(parameter_map)
+        if self.progress is not None:
+            self.progress("finalizing", total_steps, total_steps, parameters)
         diagnostics = stdout_capture.getvalue() + stderr_capture.getvalue()
         return (
             parameters,

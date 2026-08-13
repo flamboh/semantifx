@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+text2fx_dir=${SEMANTIFX_TEXT2FX_REPO:-"$repo_dir/../oss/text2fx"}
+python=${SEMANTIFX_TEXT2FX_PYTHON:-"$text2fx_dir/.venv/bin/python"}
+spool_dir=${1:?"usage: scripts/worker SPOOL_DIRECTORY"}
+
+if [ ! -x "$python" ]; then
+  echo "Text2FX Python environment not found: $python" >&2
+  exit 1
+fi
+
+exec env PYTHONPATH="$repo_dir/inference/src" "$python" \
+  -m semantifx_inference.spool_worker \
+  --directory "$spool_dir" \
+  --default-backend text2fx

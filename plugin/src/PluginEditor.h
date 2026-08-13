@@ -36,8 +36,9 @@ private:
     void selectBand (int);
     void beginCapture();
     void beginAnalysis();
-    void cancelWork();
+    void cancelWork (bool acceptLatestPreview = true);
     void timerCallback() override;
+    void updateAnalysisPreview();
     void updateWorkflowState();
 
     PluginProcessor& pluginProcessor;
@@ -69,8 +70,6 @@ private:
     juce::Label selectedBandLabel;
     juce::Label lastDirectionLabel;
     juce::TooltipWindow tooltipWindow { this, 650 };
-
-    DevelopmentAnalysisState previousAnalysisState { DevelopmentAnalysisState::idle };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };
