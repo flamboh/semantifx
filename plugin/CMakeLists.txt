@@ -41,6 +41,7 @@ juce_add_plugin(Semantifx
 target_sources(Semantifx PRIVATE
   src/AnalysisResult.cpp
   src/AnalysisResult.h
+  src/generated/EffectParameters.h
   src/CaptureBuffer.h
   src/DistortionMath.h
   src/PluginEditor.cpp

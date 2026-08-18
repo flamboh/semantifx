@@ -32,9 +32,9 @@ single generic drive knob.
 
 It builds as macOS Standalone, Audio Unit, and VST3 targets and supports
 capture, text prompting, progress previews, interruption, manual editing,
-bypass comparison, and state persistence. Protocol v2 identifies each effect
-instance and carries its current configuration. It is the only supported
-protocol.
+bypass comparison, and state persistence. The protocol identifies each effect
+instance and carries its current configuration; it is generated from the
+effect definitions in `protocol/effects` by `scripts/gen`.
 
 The system is split at a narrow seam: JUCE owns deterministic real-time audio
 processing; the inference worker accepts an audio excerpt, target prompt, and
@@ -112,22 +112,7 @@ if Semantifx does not appear.
 
 Semantifx is an effect, so audio must be moving through that Mixer insert. If
 its meter is not moving, route an instrument or audio clip to the insert and
-press Play. FL Studio's [effect-slot
-guide](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/mixer_plugin.htm)
-has more detail about Mixer routing.
-
-### Shape the sound
-
-1. Type what you want the sound to become.
-2. Play a representative part of the track.
-3. Click **Listen 10s** and keep playback running.
-4. When capture finishes, click **Shape sound**.
-5. Wait for the result. Once a preview appears, you can click **Use current**
-   to stop early and apply the preview you see.
-
-The first run can take longer because the worker has to load the model. Later
-runs in the same plugin instance reuse it. Press Escape if you want to stop
-without applying the preview.
+press Play.
 
 ### Rebuild after a code change
 
@@ -141,23 +126,3 @@ ditto plugin/build/Semantifx_artefacts/Debug/VST3/Semantifx.vst3 \
 
 Open FL Studio again and load Semantifx. If it still shows the old build, scan
 again with **Rescan previously verified plugins** turned on.
-
-## Current implementation edge
-
-The real inference worker and real-time plugin share protocol v2's strict,
-22-parameter EQ + distortion contract. The development build captures audio,
-keeps a local inference worker alive across requests, reports model-loading and
-optimization progress, and previews the evolving suggestion. Once a preview
-exists, **Use current** interrupts optimization and applies that candidate;
-Escape cancels and discards it.
-
-This first distortion runs at the session sample rate. Oversampling is deferred,
-so high-drive settings can still alias; the worker reports that limitation with
-every result. Protocol v2 is intentionally fixed to one EQ and one distortion,
-but accepts either order. Supporting arbitrary supplied chains will require effect-schema
-negotiation, but chain assembly remains a separate future problem. The worker
-uses an atomic file spool and embeds this checkout's path. Packaging a shared
-worker and replacing repository-relative paths remain distribution work.
-
-See [the first measured baseline](docs/benchmark-baseline.md) and
-[plugin validation](docs/plugin-validation.md).

@@ -3,6 +3,9 @@ set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+echo "== Generated artifacts =="
+python3 "$repo_dir/scripts/gen" --check
+
 echo "== Inference tests =="
 (cd "$repo_dir/inference" && PYTHONPATH=src python3 -m unittest discover -s tests -v)
 

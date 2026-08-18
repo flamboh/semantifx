@@ -9,8 +9,7 @@ from semantifx_inference.worker import run_stream
 class WorkerTests(unittest.TestCase):
     def test_one_response_per_nonempty_input_line(self):
         valid = {
-            "protocol_version": "2",
-            "type": "analyze",
+                "type": "analyze",
             "request_id": "worker-1",
             "prompt": "dark",
             "audio": {"path": "/tmp/input.wav"},
@@ -29,8 +28,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_diagnostics_are_separate_from_json_stream(self):
         valid = {
-            "protocol_version": "2",
-            "type": "analyze",
+                "type": "analyze",
             "request_id": "worker-2",
             "prompt": "airy",
             "audio": {"path": "/tmp/input.wav"},

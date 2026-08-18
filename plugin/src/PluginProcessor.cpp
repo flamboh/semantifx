@@ -304,7 +304,6 @@ private:
 
         auto request = juce::var { new juce::DynamicObject {} };
         auto* object = request.getDynamicObject();
-        object->setProperty ("protocol_version", "2");
         object->setProperty ("type", "analyze");
         object->setProperty ("request_id", localRequestId);
         object->setProperty ("prompt", localPrompt);
@@ -312,13 +311,12 @@ private:
         auto audio = juce::var { new juce::DynamicObject {} };
         audio.getDynamicObject()->setProperty ("path", captureFile.getFullPathName());
         object->setProperty ("audio", audio);
-        const auto chainItem = [this] (const char* instanceId, const char* effectType,
-                                       size_t firstParameter, size_t parameterCount)
+        const auto chainItem = [this] (size_t firstParameter, size_t parameterCount)
         {
             auto item = juce::var { new juce::DynamicObject {} };
             auto* itemObject = item.getDynamicObject();
-            itemObject->setProperty ("instance_id", instanceId);
-            itemObject->setProperty ("effect_type", effectType);
+            itemObject->setProperty ("instance_id", protocol::chainParameterSpecs[firstParameter].effectInstanceId);
+            itemObject->setProperty ("effect_type", protocol::chainParameterSpecs[firstParameter].effectType);
             auto parameterValues = juce::var { new juce::DynamicObject {} };
             auto* valuesObject = parameterValues.getDynamicObject();
             for (size_t index = firstParameter; index < firstParameter + parameterCount; ++index)
@@ -330,10 +328,8 @@ private:
             itemObject->setProperty ("parameters", parameterValues);
             return item;
         };
-        const auto eq = chainItem ("eq-1", "eq", 0, protocol::eqParameterNames.size());
-        const auto distortion = chainItem (
-            "distortion-1", "distortion", protocol::eqParameterNames.size(),
-            protocol::distortionParameterNames.size());
+        const auto eq = chainItem (0, protocol::eqParameterCount);
+        const auto distortion = chainItem (protocol::eqParameterCount, protocol::distortionParameterCount);
         juce::Array<juce::var> chain;
         if (owner.parameters.getRawParameterValue (parameter::effectOrder)->load() >= 0.5f)
         {
@@ -648,13 +644,6 @@ constexpr double parameterRampSeconds = 0.05;
 constexpr float bypassRampSeconds = 0.02f;
 constexpr int coefficientUpdateInterval = 32;
 
-juce::NormalisableRange<float> logarithmicRange (float minimum, float maximum)
-{
-    juce::NormalisableRange<float> range { minimum, maximum };
-    range.setSkewForCentre (std::sqrt (minimum * maximum));
-    return range;
-}
-
 float value (const juce::AudioProcessorValueTreeState& state, const char* id) noexcept
 {
     return state.getRawParameterValue (id)->load();
@@ -681,31 +670,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout PluginProcessor::createParam
     using ID = juce::ParameterID;
 
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    const auto addBand = [&layout] (parameter::BandIDs ids, const juce::String& name,
-                                    float minimumFrequency, float maximumFrequency, float defaultFrequency)
+    for (const auto& spec : protocol::chainParameterSpecs)
     {
-        layout.add (std::make_unique<FloatParameter> (ID { ids.gain, 1 }, name + " Gain",
-                                                       juce::NormalisableRange<float> { -20.0f, 20.0f, 0.1f }, 0.0f));
-        layout.add (std::make_unique<FloatParameter> (ID { ids.frequency, 1 }, name + " Frequency",
-                                                       logarithmicRange (minimumFrequency, maximumFrequency), defaultFrequency));
-        layout.add (std::make_unique<FloatParameter> (ID { ids.q, 1 }, name + " Q",
-                                                       logarithmicRange (0.1f, 6.0f), 0.7071f));
-    };
-
-    addBand (parameter::bands[0], "Low Shelf", 20.0f, 2000.0f, 200.0f);
-    addBand (parameter::bands[1], "Low Mid", 80.0f, 2000.0f, 500.0f);
-    addBand (parameter::bands[2], "Mid", 2000.0f, 8000.0f, 3500.0f);
-    addBand (parameter::bands[3], "High Mid", 8000.0f, 12000.0f, 9000.0f);
-    addBand (parameter::bands[4], "Air", 12000.0f, 21050.0f, 14000.0f);
-    addBand (parameter::bands[5], "High Shelf", 4000.0f, 21050.0f, 12000.0f);
-    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionDrive, 1 }, "Distortion Drive",
-                                                   juce::NormalisableRange<float> { 0.0f, 48.0f, 0.1f }, 0.0f));
-    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionCharacter, 1 }, "Distortion Character",
-                                                   juce::NormalisableRange<float> { 0.0f, 1.0f, 0.001f }, 0.5f));
-    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionTone, 1 }, "Distortion Tone",
-                                                   juce::NormalisableRange<float> { -12.0f, 12.0f, 0.1f }, 0.0f));
-    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionMix, 1 }, "Distortion Mix",
-                                                   juce::NormalisableRange<float> { 0.0f, 1.0f, 0.001f }, 0.25f));
+        juce::NormalisableRange<float> range { spec.minimum, spec.maximum, spec.step };
+        if (spec.logarithmic)
+            range.setSkewForCentre (std::sqrt (spec.minimum * spec.maximum));
+        layout.add (std::make_unique<FloatParameter> (ID { spec.pluginParameterId, 1 },
+                                                       spec.displayName, range, spec.defaultValue));
+    }
     layout.add (std::make_unique<juce::AudioParameterChoice> (
         ID { parameter::effectOrder, 1 }, "Effect Order",
         juce::StringArray { "EQ then Distortion", "Distortion then EQ" }, 0));

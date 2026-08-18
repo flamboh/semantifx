@@ -1,22 +1,25 @@
 # SemantiFX inference protocol
 
-Protocol version `2` is the only supported newline-delimited JSON (JSONL)
-contract between an audio-effect host and the local inference worker. Each
-input line is one analysis request and each output line is exactly one result
-with the same `request_id`. The worker never writes logs or progress messages
-to stdout.
+The newline-delimited JSON (JSONL) contract between an audio-effect host and
+the local inference worker. Each input line is one analysis request and each
+output line is exactly one result with the same `request_id`. The worker never
+writes logs or progress messages to stdout.
 
-Version 2 is intentionally strict and describes exactly two effect instances:
-`eq-1` and `distortion-1`. The host may submit either order; the optimizer keeps
-that topology fixed while searching its parameters. The schemas in
-[`schemas/v2`](schemas/v2) are the source of truth, with request examples in
+The contract is generated from the effect definitions in
+[`effects`](effects): edit those TOML files and run `scripts/gen` to update
+the schemas in [`schemas`](schemas), the plugin parameter table, and the
+inference chain schema together. `scripts/gen --check` verifies the checked-in
+artifacts match the definitions. Request examples live in
 [`examples`](examples).
+
+The contract is intentionally strict and describes exactly two effect
+instances: `eq-1` and `distortion-1`. The host may submit either order; the
+optimizer keeps that topology fixed while searching its parameters.
 
 ## Request
 
 An analysis request contains:
 
-- `protocol_version`: `"2"`
 - `type`: `"analyze"`
 - `request_id`: a caller-generated correlation identifier
 - `prompt`: the musician's target description
@@ -46,7 +49,7 @@ applies a suggestion to the wrong processor.
 
 ## Future chain topology
 
-Arbitrary supplied chains need schema negotiation, repeated-effect validation,
-bypass state, and an explicit way to prove that a result belongs to the exact
-chain submitted. This remains chain optimization only; automatically choosing
-effect instances and their order is a separate future chain-assembly operation.
+Arbitrary supplied chains need repeated-effect validation, bypass state, and an
+explicit way to prove that a result belongs to the exact chain submitted. This
+remains chain optimization only; automatically choosing effect instances and
+their order is a separate future chain-assembly operation.

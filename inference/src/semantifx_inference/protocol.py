@@ -5,10 +5,7 @@ from .chain_schema import CHAIN_ORDERS, chain_order, instance_schema
 from .errors import SemantiFXError
 
 
-PROTOCOL_VERSION = "2"
-_REQUEST_FIELDS = {
-    "protocol_version", "type", "request_id", "prompt", "audio", "chain", "options"
-}
+_REQUEST_FIELDS = {"type", "request_id", "prompt", "audio", "chain", "options"}
 _CHAIN_FIELDS = {"instance_id", "effect_type", "parameters"}
 _AUDIO_FIELDS = {"path"}
 _OPTION_FIELDS = {
@@ -29,7 +26,7 @@ def _fail(message: str, field: Optional[str] = None) -> None:
     raise SemantiFXError(
         "invalid_request",
         message,
-        ["Send a request matching the protocol-v2 schema."],
+        ["Send a request matching the protocol request schema."],
         details,
     )
 
@@ -96,13 +93,6 @@ def validate_request(value: Any) -> Dict[str, Any]:
     """Validate and return the fixed-chain request without mutating it."""
     if not isinstance(value, dict):
         _fail("Request must be a JSON object.")
-    if value.get("protocol_version") != PROTOCOL_VERSION:
-        raise SemantiFXError(
-            "unsupported_protocol_version",
-            "Protocol version %r is not supported." % value.get("protocol_version"),
-            ["Use protocol version %s." % PROTOCOL_VERSION],
-            {"supported_versions": [PROTOCOL_VERSION]},
-        )
     _check_unknown_fields(value, _REQUEST_FIELDS, "request")
     for field in ("type", "request_id", "prompt", "audio", "chain"):
         if field not in value:
@@ -126,7 +116,7 @@ def validate_request(value: Any) -> Dict[str, Any]:
 
     chain = value["chain"]
     if not isinstance(chain, list) or len(chain) != 2:
-        _fail("Protocol v2 requires exactly one EQ and one distortion.", "chain")
+        _fail("The chain must contain exactly one EQ and one distortion.", "chain")
     for index, item in enumerate(chain):
         location = "chain[%d]" % index
         if not isinstance(item, dict):
@@ -168,7 +158,6 @@ def ok_result(
     warnings: Optional[list] = None,
 ) -> dict:
     return {
-        "protocol_version": PROTOCOL_VERSION,
         "type": "analysis_result",
         "request_id": request_id,
         "status": "ok",
@@ -188,7 +177,6 @@ def error_result(
     elapsed_ms: float,
 ) -> dict:
     return {
-        "protocol_version": PROTOCOL_VERSION,
         "type": "analysis_result",
         "request_id": request_id,
         "status": "error",

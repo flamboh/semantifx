@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""Generate protocol schemas and parameter tables from protocol/effects/*.toml.
+
+The effect definitions are the single source of truth for parameter names,
+units, ranges, defaults, and plugin metadata. This script emits:
+
+  protocol/schemas/request.schema.json
+  protocol/schemas/result.schema.json
+  plugin/src/generated/EffectParameters.h
+  inference/src/semantifx_inference/_generated_effects.py
+
+Run with no arguments to rewrite the artifacts, or with --check to verify the
+checked-in artifacts match the definitions (used by scripts/check).
+"""
+
+import json
+import sys
+import tomllib
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+# The fixed chain: one instance of each effect, id "<effect_type>-1". Chain
+# generalization will replace this list with host-supplied topologies.
+CANONICAL_CHAIN = ("eq", "distortion")
+
+
+def load_effects():
+    effects = []
+    for effect_type in CANONICAL_CHAIN:
+        path = REPO / "protocol" / "effects" / (effect_type + ".toml")
+        with path.open("rb") as handle:
+            definition = tomllib.load(handle)
+        if definition.get("effect_type") != effect_type:
+            raise SystemExit("%s must define effect_type %r." % (path, effect_type))
+        parameters = definition.get("parameters", [])
+        if not parameters:
+            raise SystemExit("%s defines no parameters." % path)
+        for parameter in parameters:
+            for field in ("name", "display_name", "unit", "min", "max", "default"):
+                if field not in parameter:
+                    raise SystemExit(
+                        "%s parameter %r is missing %r." % (path, parameter.get("name"), field)
+                    )
+            parameter.setdefault("step", 0.0)
+            parameter.setdefault("scale", "linear")
+            parameter.setdefault("plugin_id", parameter["name"])
+            if parameter["scale"] not in ("linear", "log"):
+                raise SystemExit("%s parameter %r has an unknown scale." % (path, parameter["name"]))
+        definition["instance_id"] = effect_type + "-1"
+        effects.append(definition)
+    return effects
+
+
+def chain_orders(effects):
+    forward = [effect["instance_id"] for effect in effects]
+    return [forward, list(reversed(forward))]
+
+
+def request_schema(effects):
+    defs = {}
+    for effect in effects:
+        effect_type = effect["effect_type"]
+        defs[effect_type + "ChainItem"] = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["instance_id", "effect_type", "parameters"],
+            "properties": {
+                "instance_id": {"const": effect["instance_id"]},
+                "effect_type": {"const": effect_type},
+                "parameters": {"$ref": "#/$defs/" + effect_type + "Parameters"},
+            },
+        }
+        defs[effect_type + "Parameters"] = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [parameter["name"] for parameter in effect["parameters"]],
+            "properties": {
+                parameter["name"]: {
+                    "type": "number",
+                    "minimum": parameter["min"],
+                    "maximum": parameter["max"],
+                }
+                for parameter in effect["parameters"]
+            },
+        }
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://semantifx.local/protocol/request.schema.json",
+        "title": "SemantiFX analysis request",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["type", "request_id", "prompt", "audio", "chain"],
+        "properties": {
+            "type": {"const": "analyze"},
+            "request_id": {"type": "string", "minLength": 1, "maxLength": 200},
+            "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
+            "audio": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["path"],
+                "properties": {"path": {"type": "string", "minLength": 1}},
+            },
+            "chain": {
+                "type": "array",
+                "minItems": len(effects),
+                "maxItems": len(effects),
+                "oneOf": [
+                    {
+                        "prefixItems": [
+                            {"$ref": "#/$defs/" + instance_id.rsplit("-", 1)[0] + "ChainItem"}
+                            for instance_id in order
+                        ],
+                        "items": False,
+                    }
+                    for order in chain_orders(effects)
+                ],
+            },
+            "options": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "backend": {"enum": ["mock", "clap"]},
+                    "model": {"enum": ["ms_clap", "laion_clap"]},
+                    "criterion": {"enum": ["cosine-sim", "directional_loss", "standard"]},
+                    "iterations": {"type": "integer", "minimum": 1, "maximum": 10000},
+                    "learning_rate": {"type": "number", "exclusiveMinimum": 0},
+                    "parameter_initialization": {"enum": ["current", "random"]},
+                    "parameter_regularization": {"type": "number", "minimum": 0},
+                    "roll_samples": {"type": "integer", "minimum": 0},
+                    "random_seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+                },
+            },
+        },
+        "$defs": defs,
+    }
+
+
+def result_schema(effects):
+    parameter_items = [
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["effect_instance_id", "effect", "name", "value", "unit"],
+            "properties": {
+                "effect_instance_id": {"const": effect["instance_id"]},
+                "effect": {"const": effect["effect_type"]},
+                "name": {"const": parameter["name"]},
+                "value": {"type": "number"},
+                "unit": {"const": parameter["unit"]},
+            },
+        }
+        for effect in effects
+        for parameter in effect["parameters"]
+    ]
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://semantifx.local/protocol/result.schema.json",
+        "title": "SemantiFX analysis result",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["type", "request_id", "status", "backend", "elapsed_ms"],
+        "properties": {
+            "type": {"const": "analysis_result"},
+            "request_id": {"type": ["string", "null"]},
+            "status": {"enum": ["ok", "error"]},
+            "backend": {"type": ["string", "null"]},
+            "elapsed_ms": {"type": "number", "minimum": 0},
+            "chain_order": {
+                "type": "array",
+                "minItems": len(effects),
+                "maxItems": len(effects),
+                "oneOf": [
+                    {
+                        "prefixItems": [{"const": instance_id} for instance_id in order],
+                        "items": False,
+                    }
+                    for order in chain_orders(effects)
+                ],
+            },
+            "parameters": {
+                "type": "array",
+                "minItems": len(parameter_items),
+                "maxItems": len(parameter_items),
+                "prefixItems": parameter_items,
+                "items": False,
+            },
+            "metrics": {"type": "object"},
+            "warnings": {"type": "array", "items": {"type": "string"}},
+            "error": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["code", "message", "remediation"],
+                "properties": {
+                    "code": {"type": "string", "minLength": 1},
+                    "message": {"type": "string", "minLength": 1},
+                    "remediation": {"type": "array", "items": {"type": "string"}},
+                    "details": {"type": "object"},
+                },
+            },
+        },
+        "allOf": [
+            {
+                "if": {"properties": {"status": {"const": "ok"}}},
+                "then": {"required": ["chain_order", "parameters", "metrics", "warnings"]},
+                "else": {"required": ["error"]},
+            }
+        ],
+    }
+
+
+def cpp_header(effects):
+    total = sum(len(effect["parameters"]) for effect in effects)
+    lines = [
+        "// Generated by scripts/gen from protocol/effects/*.toml. Do not edit.",
+        "#pragma once",
+        "",
+        "#include <array>",
+        "#include <cstddef>",
+        "",
+        "namespace semantifx::protocol",
+        "{",
+        "struct ParameterSpec",
+        "{",
+        "    const char* effectInstanceId;",
+        "    const char* effectType;",
+        "    const char* name;",
+        "    const char* unit;",
+        "    const char* pluginParameterId;",
+        "    const char* displayName;",
+        "    float minimum;",
+        "    float maximum;",
+        "    float defaultValue;",
+        "    float step;       // 0 = continuous",
+        "    bool logarithmic; // host normalization skewed toward sqrt(minimum * maximum)",
+        "};",
+        "",
+    ]
+    for effect in effects:
+        lines.append(
+            "inline constexpr std::size_t %sParameterCount = %d;"
+            % (effect["effect_type"], len(effect["parameters"]))
+        )
+    lines += [
+        "",
+        "inline constexpr std::array<ParameterSpec, %d> chainParameterSpecs {{" % total,
+    ]
+    for effect in effects:
+        for parameter in effect["parameters"]:
+            lines.append(
+                '    { "%s", "%s", "%s", "%s", "%s", "%s", %sf, %sf, %sf, %sf, %s },'
+                % (
+                    effect["instance_id"],
+                    effect["effect_type"],
+                    parameter["name"],
+                    parameter["unit"],
+                    parameter["plugin_id"],
+                    parameter["display_name"],
+                    float(parameter["min"]),
+                    float(parameter["max"]),
+                    float(parameter["default"]),
+                    float(parameter["step"]),
+                    "true" if parameter["scale"] == "log" else "false",
+                )
+            )
+    lines += [
+        "}};",
+        "} // namespace semantifx::protocol",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def python_module(effects):
+    lines = [
+        '"""Generated by scripts/gen from protocol/effects/*.toml. Do not edit."""',
+        "",
+        "# (instance_id, effect_type, ((name, unit, min, max, default), ...))",
+        "EFFECTS = (",
+    ]
+    for effect in effects:
+        lines.append('    ("%s", "%s", (' % (effect["instance_id"], effect["effect_type"]))
+        for parameter in effect["parameters"]:
+            lines.append(
+                '        ("%s", "%s", %r, %r, %r),'
+                % (
+                    parameter["name"],
+                    parameter["unit"],
+                    float(parameter["min"]),
+                    float(parameter["max"]),
+                    float(parameter["default"]),
+                )
+            )
+        lines.append("    )),")
+    lines += [")", ""]
+    return "\n".join(lines)
+
+
+def artifacts():
+    effects = load_effects()
+    return {
+        REPO / "protocol/schemas/request.schema.json": json.dumps(request_schema(effects), indent=2) + "\n",
+        REPO / "protocol/schemas/result.schema.json": json.dumps(result_schema(effects), indent=2) + "\n",
+        REPO / "plugin/src/generated/EffectParameters.h": cpp_header(effects),
+        REPO / "inference/src/semantifx_inference/_generated_effects.py": python_module(effects),
+    }
+
+
+def main() -> int:
+    check = "--check" in sys.argv[1:]
+    stale = []
+    for path, content in artifacts().items():
+        if check:
+            if not path.is_file() or path.read_text(encoding="utf-8") != content:
+                stale.append(path)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            print("wrote %s" % path.relative_to(REPO))
+    if stale:
+        for path in stale:
+            print("stale: %s" % path.relative_to(REPO), file=sys.stderr)
+        print("Run scripts/gen to regenerate.", file=sys.stderr)
+        return 1
+    if check:
+        print("Generated artifacts are up to date.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

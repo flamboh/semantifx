@@ -27,7 +27,6 @@ class ProgressFileWriterTests(unittest.TestCase):
             self.assertEqual(
                 json.loads(destination.read_text()),
                 {
-                    "protocol_version": "2",
                     "type": "analysis_progress",
                     "request_id": "progress-test",
                     "phase": "optimizing",
@@ -37,12 +36,6 @@ class ProgressFileWriterTests(unittest.TestCase):
                     "parameters": parameters,
                 },
             )
-
-    def test_uses_the_current_protocol_version(self):
-        with tempfile.TemporaryDirectory() as directory:
-            destination = Path(directory) / "progress.json"
-            ProgressFileWriter(destination, "chain-progress")("loading_model", 0, 10)
-            self.assertEqual(json.loads(destination.read_text())["protocol_version"], "2")
 
     def test_publishes_reversed_effect_order(self):
         with tempfile.TemporaryDirectory() as directory:

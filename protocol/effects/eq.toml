@@ -1,0 +1,170 @@
+# Six-band parametric EQ definition. scripts/gen turns this into the protocol
+# schemas, the plugin parameter table, and the inference chain schema.
+#
+# Per-parameter fields: name (protocol identifier), display_name (host UI),
+# unit, min/max/default (physical values), and optionally step (0 = continuous)
+# and scale = "log" (host normalization skewed toward sqrt(min * max)).
+# plugin_id defaults to name when omitted.
+effect_type = "eq"
+
+[[parameters]]
+name = "low_shelf_gain_db"
+display_name = "Low Shelf Gain"
+unit = "dB"
+min = -20.0
+max = 20.0
+default = 0.0
+step = 0.1
+
+[[parameters]]
+name = "low_shelf_cutoff_freq"
+display_name = "Low Shelf Frequency"
+unit = "Hz"
+min = 20.0
+max = 2000.0
+default = 200.0
+scale = "log"
+
+[[parameters]]
+name = "low_shelf_q_factor"
+display_name = "Low Shelf Q"
+unit = "ratio"
+min = 0.1
+max = 6.0
+default = 0.7071
+scale = "log"
+
+[[parameters]]
+name = "band0_gain_db"
+display_name = "Low Mid Gain"
+unit = "dB"
+min = -20.0
+max = 20.0
+default = 0.0
+step = 0.1
+
+[[parameters]]
+name = "band0_cutoff_freq"
+display_name = "Low Mid Frequency"
+unit = "Hz"
+min = 80.0
+max = 2000.0
+default = 500.0
+scale = "log"
+
+[[parameters]]
+name = "band0_q_factor"
+display_name = "Low Mid Q"
+unit = "ratio"
+min = 0.1
+max = 6.0
+default = 0.7071
+scale = "log"
+
+[[parameters]]
+name = "band1_gain_db"
+display_name = "Mid Gain"
+unit = "dB"
+min = -20.0
+max = 20.0
+default = 0.0
+step = 0.1
+
+[[parameters]]
+name = "band1_cutoff_freq"
+display_name = "Mid Frequency"
+unit = "Hz"
+min = 2000.0
+max = 8000.0
+default = 3500.0
+scale = "log"
+
+[[parameters]]
+name = "band1_q_factor"
+display_name = "Mid Q"
+unit = "ratio"
+min = 0.1
+max = 6.0
+default = 0.7071
+scale = "log"
+
+[[parameters]]
+name = "band2_gain_db"
+display_name = "High Mid Gain"
+unit = "dB"
+min = -20.0
+max = 20.0
+default = 0.0
+step = 0.1
+
+[[parameters]]
+name = "band2_cutoff_freq"
+display_name = "High Mid Frequency"
+unit = "Hz"
+min = 8000.0
+max = 12000.0
+default = 9000.0
+scale = "log"
+
+[[parameters]]
+name = "band2_q_factor"
+display_name = "High Mid Q"
+unit = "ratio"
+min = 0.1
+max = 6.0
+default = 0.7071
+scale = "log"
+
+[[parameters]]
+name = "band3_gain_db"
+display_name = "Air Gain"
+unit = "dB"
+min = -20.0
+max = 20.0
+default = 0.0
+step = 0.1
+
+[[parameters]]
+name = "band3_cutoff_freq"
+display_name = "Air Frequency"
+unit = "Hz"
+min = 12000.0
+max = 21050.0
+default = 14000.0
+scale = "log"
+
+[[parameters]]
+name = "band3_q_factor"
+display_name = "Air Q"
+unit = "ratio"
+min = 0.1
+max = 6.0
+default = 0.7071
+scale = "log"
+
+[[parameters]]
+name = "high_shelf_gain_db"
+display_name = "High Shelf Gain"
+unit = "dB"
+min = -20.0
+max = 20.0
+default = 0.0
+step = 0.1
+
+[[parameters]]
+name = "high_shelf_cutoff_freq"
+display_name = "High Shelf Frequency"
+unit = "Hz"
+min = 4000.0
+max = 21050.0
+default = 12000.0
+scale = "log"
+
+[[parameters]]
+name = "high_shelf_q_factor"
+display_name = "High Shelf Q"
+unit = "ratio"
+min = 0.1
+max = 6.0
+default = 0.7071
+scale = "log"

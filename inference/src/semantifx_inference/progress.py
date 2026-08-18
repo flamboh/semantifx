@@ -3,8 +3,6 @@ import os
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
-from .protocol import PROTOCOL_VERSION
-
 
 ProgressCallback = Callable[[str, int, int, Optional[List[dict]]], None]
 
@@ -34,7 +32,6 @@ class ProgressFileWriter:
         parameters: Optional[List[dict]] = None,
     ) -> None:
         snapshot = {
-            "protocol_version": PROTOCOL_VERSION,
             "type": "analysis_progress",
             "phase": phase,
             "step": step,

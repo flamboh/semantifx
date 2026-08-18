@@ -1,7 +1,7 @@
 """Persistent single-request worker using an atomic file spool.
 
 The file transport is deliberately private to the development plugin. The
-public inference contract remains the versioned analyze request/result pair.
+public inference contract remains the analyze request/result pair.
 """
 
 import argparse
@@ -12,7 +12,6 @@ import time
 from typing import Callable, Optional, Tuple
 
 from .progress import AnalysisCancelled, ProgressFileWriter
-from .protocol import PROTOCOL_VERSION
 from .service import analyze
 
 
@@ -78,7 +77,6 @@ def process_request(
             raise AnalysisCancelled()
     except AnalysisCancelled:
         result = {
-            "protocol_version": PROTOCOL_VERSION,
             "type": "analysis_cancelled",
             "request_id": request_id,
         }

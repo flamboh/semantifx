@@ -14,7 +14,6 @@ juce::String makeResult (
 {
     auto root = juce::var { new juce::DynamicObject {} };
     auto* rootObject = root.getDynamicObject();
-    rootObject->setProperty ("protocol_version", "2");
     rootObject->setProperty ("type", "analysis_result");
     rootObject->setProperty ("request_id", "chain-result-test");
     rootObject->setProperty ("status", "ok");
@@ -73,10 +72,10 @@ juce::String makeProgress (int step = 4, int totalSteps = 10, bool includeParame
 int main()
 {
     using namespace semantifx::protocol;
-    static_assert (eqParameterNames.size() == 18);
-    static_assert (chainParameterSpecs.size() == 22);
-    assert (juce::String { eqParameterNames.front() } == "low_shelf_gain_db");
-    assert (juce::String { eqParameterNames.back() } == "high_shelf_q_factor");
+    static_assert (eqParameterCount == 18);
+    static_assert (chainParameterSpecs.size() == eqParameterCount + distortionParameterCount);
+    assert (juce::String { chainParameterSpecs.front().name } == "low_shelf_gain_db");
+    assert (juce::String { chainParameterSpecs[eqParameterCount - 1].name } == "high_shelf_q_factor");
 
     AnalysisResult parsed;
     assert (parseAnalysisResult (makeResult(), parsed).wasOk());
@@ -110,7 +109,7 @@ int main()
 
     juce::String cancelledRequest;
     assert (parseAnalysisCancellation (
-        R"({"protocol_version":"2","type":"analysis_cancelled","request_id":"cancel-test"})",
+        R"({"type":"analysis_cancelled","request_id":"cancel-test"})",
         cancelledRequest).wasOk());
     assert (cancelledRequest == "cancel-test");
     assert (parseAnalysisCancellation (makeResult(), cancelledRequest).failed());

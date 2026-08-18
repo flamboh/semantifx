@@ -57,7 +57,6 @@ def main(argv=None) -> int:
     if args.random_seed is not None:
         options["random_seed"] = args.random_seed
     request = {
-        "protocol_version": "2",
         "type": "analyze",
         "request_id": args.request_id or str(uuid.uuid4()),
         "prompt": args.prompt,

@@ -6,7 +6,6 @@ from semantifx_inference.service import analyze
 
 def request(prompt="warm", path="/tmp/input.wav"):
     return {
-        "protocol_version": "2",
         "type": "analyze",
         "request_id": "mock-1",
         "prompt": prompt,
@@ -19,7 +18,6 @@ def request(prompt="warm", path="/tmp/input.wav"):
 class MockAdapterTests(unittest.TestCase):
     def test_produces_complete_eq_distortion_chain(self):
         result, _ = analyze(request("warm and gritty"))
-        self.assertEqual(result["protocol_version"], "2")
         self.assertEqual(len(result["parameters"]), 22)
         distortion = {
             item["name"]: item["value"]

@@ -50,7 +50,7 @@ juce::Result parseParameters (const juce::var& parameters, AnalysisResult& desti
         return juce::Result::fail ("Expected \"parameters\" to be an array.");
 
     if (array->size() != static_cast<int> (chainParameterSpecs.size()))
-        return juce::Result::fail ("Protocol-v2 results must contain exactly "
+        return juce::Result::fail ("Chain results must contain exactly "
                                    + juce::String { chainParameterSpecs.size() } + " parameters.");
 
     for (size_t index = 0; index < chainParameterSpecs.size(); ++index)
@@ -66,7 +66,7 @@ juce::Result parseParameters (const juce::var& parameters, AnalysisResult& desti
         const auto numericValue = parameter->getProperty ("value");
         const auto unitValue = parameter->getProperty ("unit");
         if (! instanceValue.isString() || ! effectValue.isString() || ! nameValue.isString())
-            return juce::Result::fail ("Every protocol-v2 parameter needs string instance, effect, and name fields.");
+            return juce::Result::fail ("Every chain parameter needs string instance, effect, and name fields.");
         if (! isNumeric (numericValue) || ! std::isfinite (static_cast<double> (numericValue)))
             return juce::Result::fail ("Parameter \"" + nameValue.toString() + "\" must have a finite numeric value.");
 
@@ -87,13 +87,6 @@ juce::Result parseParameters (const juce::var& parameters, AnalysisResult& desti
     return juce::Result::ok();
 }
 
-juce::Result parseVersion (juce::DynamicObject& object)
-{
-    const auto version = object.getProperty ("protocol_version");
-    if (! version.isString() || version.toString() != "2")
-        return juce::Result::fail ("Expected \"protocol_version\" to be \"2\".");
-    return juce::Result::ok();
-}
 } // namespace
 
 juce::Result parseAnalysisResult (const juce::String& json, AnalysisResult& destination)
@@ -107,8 +100,6 @@ juce::Result parseAnalysisResult (const juce::String& json, AnalysisResult& dest
         return juce::Result::fail ("Analysis result must be a JSON object.");
 
     destination = {};
-    if (const auto result = parseVersion (*object); result.failed())
-        return result;
     for (const auto& expectation : std::array<std::pair<juce::Identifier, juce::String>, 2> {{
              { "type", "analysis_result" }, { "status", "ok" } }})
         if (const auto result = requireStringProperty (*object, expectation.first, expectation.second); result.failed())
@@ -135,8 +126,6 @@ juce::Result parseAnalysisProgress (const juce::String& json, AnalysisProgress& 
         return juce::Result::fail ("Analysis progress must be a JSON object.");
 
     destination = {};
-    if (const auto result = parseVersion (*object); result.failed())
-        return result;
     if (const auto result = requireStringProperty (*object, "type", "analysis_progress"); result.failed())
         return result;
 
@@ -182,8 +171,6 @@ juce::Result parseAnalysisCancellation (const juce::String& json, juce::String& 
     auto* object = root.getDynamicObject();
     if (object == nullptr)
         return juce::Result::fail ("Analysis cancellation must be a JSON object.");
-    if (const auto result = parseVersion (*object); result.failed())
-        return result;
     if (const auto result = requireStringProperty (*object, "type", "analysis_cancelled"); result.failed())
         return result;
 

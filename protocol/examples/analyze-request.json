@@ -1,9 +1,10 @@
 {
-  "protocol_version": "2",
   "type": "analyze",
   "request_id": "chain-demo-001",
   "prompt": "warm and lightly saturated",
-  "audio": { "path": "/tmp/semantifx-capture.wav" },
+  "audio": {
+    "path": "/tmp/semantifx-capture.wav"
+  },
   "chain": [
     {
       "instance_id": "eq-1",
@@ -32,7 +33,12 @@
     {
       "instance_id": "distortion-1",
       "effect_type": "distortion",
-      "parameters": { "drive_db": 0, "character": 0.5, "tone_db": 0, "mix": 0.25 }
+      "parameters": {
+        "drive_db": 0,
+        "character": 0.5,
+        "tone_db": 0,
+        "mix": 0.25
+      }
     }
   ],
   "options": {

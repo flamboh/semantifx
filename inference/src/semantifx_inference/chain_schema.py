@@ -1,7 +1,13 @@
-"""Dependency-free schema for SemantiFX's first fixed effect chain."""
+"""Dependency-free schema for SemantiFX's first fixed effect chain.
+
+Parameter tables come from the generated module; edit protocol/effects/*.toml
+and run scripts/gen to change them.
+"""
 
 from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
+
+from ._generated_effects import EFFECTS
 
 
 @dataclass(frozen=True)
@@ -13,41 +19,13 @@ class ParameterSpec:
     default: float
 
 
-EQ_INSTANCE_ID = "eq-1"
-DISTORTION_INSTANCE_ID = "distortion-1"
-
-EQ_PARAMETERS: Tuple[ParameterSpec, ...] = (
-    ParameterSpec("low_shelf_gain_db", "dB", -20.0, 20.0, 0.0),
-    ParameterSpec("low_shelf_cutoff_freq", "Hz", 20.0, 2000.0, 200.0),
-    ParameterSpec("low_shelf_q_factor", "ratio", 0.1, 6.0, 0.7071),
-    ParameterSpec("band0_gain_db", "dB", -20.0, 20.0, 0.0),
-    ParameterSpec("band0_cutoff_freq", "Hz", 80.0, 2000.0, 500.0),
-    ParameterSpec("band0_q_factor", "ratio", 0.1, 6.0, 0.7071),
-    ParameterSpec("band1_gain_db", "dB", -20.0, 20.0, 0.0),
-    ParameterSpec("band1_cutoff_freq", "Hz", 2000.0, 8000.0, 3500.0),
-    ParameterSpec("band1_q_factor", "ratio", 0.1, 6.0, 0.7071),
-    ParameterSpec("band2_gain_db", "dB", -20.0, 20.0, 0.0),
-    ParameterSpec("band2_cutoff_freq", "Hz", 8000.0, 12000.0, 9000.0),
-    ParameterSpec("band2_q_factor", "ratio", 0.1, 6.0, 0.7071),
-    ParameterSpec("band3_gain_db", "dB", -20.0, 20.0, 0.0),
-    ParameterSpec("band3_cutoff_freq", "Hz", 12000.0, 21050.0, 14000.0),
-    ParameterSpec("band3_q_factor", "ratio", 0.1, 6.0, 0.7071),
-    ParameterSpec("high_shelf_gain_db", "dB", -20.0, 20.0, 0.0),
-    ParameterSpec("high_shelf_cutoff_freq", "Hz", 4000.0, 21050.0, 12000.0),
-    ParameterSpec("high_shelf_q_factor", "ratio", 0.1, 6.0, 0.7071),
+CHAIN: Tuple[Tuple[str, str, Sequence[ParameterSpec]], ...] = tuple(
+    (instance_id, effect_type, tuple(ParameterSpec(*entry) for entry in parameters))
+    for instance_id, effect_type, parameters in EFFECTS
 )
 
-DISTORTION_PARAMETERS: Tuple[ParameterSpec, ...] = (
-    ParameterSpec("drive_db", "dB", 0.0, 48.0, 0.0),
-    ParameterSpec("character", "ratio", 0.0, 1.0, 0.5),
-    ParameterSpec("tone_db", "dB", -12.0, 12.0, 0.0),
-    ParameterSpec("mix", "ratio", 0.0, 1.0, 0.25),
-)
-
-CHAIN: Tuple[Tuple[str, str, Sequence[ParameterSpec]], ...] = (
-    (EQ_INSTANCE_ID, "eq", EQ_PARAMETERS),
-    (DISTORTION_INSTANCE_ID, "distortion", DISTORTION_PARAMETERS),
-)
+EQ_INSTANCE_ID, DISTORTION_INSTANCE_ID = CHAIN[0][0], CHAIN[1][0]
+EQ_PARAMETERS, DISTORTION_PARAMETERS = CHAIN[0][2], CHAIN[1][2]
 EQ_THEN_DISTORTION = (EQ_INSTANCE_ID, DISTORTION_INSTANCE_ID)
 DISTORTION_THEN_EQ = (DISTORTION_INSTANCE_ID, EQ_INSTANCE_ID)
 CHAIN_ORDERS = (EQ_THEN_DISTORTION, DISTORTION_THEN_EQ)

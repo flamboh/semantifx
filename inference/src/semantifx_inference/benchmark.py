@@ -112,7 +112,6 @@ def load_manifest(path: Path) -> dict:
     for config in expand_matrix(matrix):
         order = DISTORTION_THEN_EQ if config.get("effect_order") == "distortion-eq" else EQ_THEN_DISTORTION
         validation_request = {
-            "protocol_version": "2",
             "type": "analyze",
             "request_id": "benchmark-manifest-validation",
             "prompt": "validation",
@@ -178,7 +177,6 @@ def _records(
         order = DISTORTION_THEN_EQ if config.get("effect_order") == "distortion-eq" else EQ_THEN_DISTORTION
         options = {key: item for key, item in config.items() if key != "effect_order"}
         request = {
-            "protocol_version": "2",
             "type": "analyze",
             "request_id": request_id,
             "prompt": prompt["text"],

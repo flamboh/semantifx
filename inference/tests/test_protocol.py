@@ -7,7 +7,6 @@ from semantifx_inference.protocol import validate_request
 
 def request():
     return {
-        "protocol_version": "2",
         "type": "analyze",
         "request_id": "test-1",
         "prompt": "warm and lightly saturated",
@@ -59,14 +58,6 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(SemantiFXError) as raised:
             validate_request(value)
         self.assertEqual(raised.exception.details["field"], "options.iterations")
-
-    def test_reports_unsupported_version_separately(self):
-        value = request()
-        value["protocol_version"] = "99"
-        with self.assertRaises(SemantiFXError) as raised:
-            validate_request(value)
-        self.assertEqual(raised.exception.code, "unsupported_protocol_version")
-        self.assertEqual(raised.exception.details["supported_versions"], ["2"])
 
     def test_accepts_uint32_random_seed(self):
         value = request()

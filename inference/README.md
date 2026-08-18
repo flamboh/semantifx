@@ -26,7 +26,7 @@ Run a persistent worker and send one JSON request per line:
 
 ```sh
 PYTHONPATH=src python -m semantifx_inference.worker --default-backend mock \
-  < ../protocol/examples/analyze-request.v2.jsonl
+  < ../protocol/examples/analyze-request.jsonl
 ```
 
 Stdout is reserved for JSONL responses. Model/runtime diagnostics and progress

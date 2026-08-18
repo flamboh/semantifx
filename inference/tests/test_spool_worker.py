@@ -11,7 +11,6 @@ from semantifx_inference.spool_worker import _write_json, process_request, run_s
 
 def request(request_id):
     return {
-        "protocol_version": "2",
         "type": "analyze",
         "request_id": request_id,
         "prompt": "warm",
