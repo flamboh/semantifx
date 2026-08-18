@@ -1,20 +1,20 @@
 {
   "manifest_version": "1",
-  "name": "text2fx-model-cache-smoke",
+  "name": "clap-model-cache-smoke",
   "repetitions": 2,
   "seed": 1729,
   "audio": [
     { "id": "guitar", "path": "../../../oss/text2fx/assets/guitar.wav" }
   ],
   "prompts": [
-    { "id": "warm", "text": "warm" }
+    { "id": "warm", "text": "warm and lightly saturated" }
   ],
   "matrix": {
-    "backend": ["text2fx"],
+    "backend": ["clap"],
     "model": ["ms_clap"],
     "criterion": ["cosine-sim"],
     "iterations": [1],
     "learning_rate": [0.01],
-    "parameter_initialization": ["zeros"]
+    "parameter_initialization": ["current"]
   }
 }

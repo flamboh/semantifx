@@ -2,6 +2,7 @@
 
 #include "AnalysisResult.h"
 #include "CaptureBuffer.h"
+#include "DistortionMath.h"
 #include "EqMath.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -19,24 +20,29 @@ enum class DevelopmentAnalysisState { idle, running, cancelling, applying, succe
 
 namespace parameter
 {
-inline constexpr auto lowGain = protocol::canonicalParameterNames[0];
-inline constexpr auto lowFrequency = protocol::canonicalParameterNames[1];
-inline constexpr auto lowQ = protocol::canonicalParameterNames[2];
-inline constexpr auto band0Gain = protocol::canonicalParameterNames[3];
-inline constexpr auto band0Frequency = protocol::canonicalParameterNames[4];
-inline constexpr auto band0Q = protocol::canonicalParameterNames[5];
-inline constexpr auto band1Gain = protocol::canonicalParameterNames[6];
-inline constexpr auto band1Frequency = protocol::canonicalParameterNames[7];
-inline constexpr auto band1Q = protocol::canonicalParameterNames[8];
-inline constexpr auto band2Gain = protocol::canonicalParameterNames[9];
-inline constexpr auto band2Frequency = protocol::canonicalParameterNames[10];
-inline constexpr auto band2Q = protocol::canonicalParameterNames[11];
-inline constexpr auto band3Gain = protocol::canonicalParameterNames[12];
-inline constexpr auto band3Frequency = protocol::canonicalParameterNames[13];
-inline constexpr auto band3Q = protocol::canonicalParameterNames[14];
-inline constexpr auto highGain = protocol::canonicalParameterNames[15];
-inline constexpr auto highFrequency = protocol::canonicalParameterNames[16];
-inline constexpr auto highQ = protocol::canonicalParameterNames[17];
+inline constexpr auto lowGain = protocol::eqParameterNames[0];
+inline constexpr auto lowFrequency = protocol::eqParameterNames[1];
+inline constexpr auto lowQ = protocol::eqParameterNames[2];
+inline constexpr auto band0Gain = protocol::eqParameterNames[3];
+inline constexpr auto band0Frequency = protocol::eqParameterNames[4];
+inline constexpr auto band0Q = protocol::eqParameterNames[5];
+inline constexpr auto band1Gain = protocol::eqParameterNames[6];
+inline constexpr auto band1Frequency = protocol::eqParameterNames[7];
+inline constexpr auto band1Q = protocol::eqParameterNames[8];
+inline constexpr auto band2Gain = protocol::eqParameterNames[9];
+inline constexpr auto band2Frequency = protocol::eqParameterNames[10];
+inline constexpr auto band2Q = protocol::eqParameterNames[11];
+inline constexpr auto band3Gain = protocol::eqParameterNames[12];
+inline constexpr auto band3Frequency = protocol::eqParameterNames[13];
+inline constexpr auto band3Q = protocol::eqParameterNames[14];
+inline constexpr auto highGain = protocol::eqParameterNames[15];
+inline constexpr auto highFrequency = protocol::eqParameterNames[16];
+inline constexpr auto highQ = protocol::eqParameterNames[17];
+inline constexpr auto distortionDrive = "distortion_drive_db";
+inline constexpr auto distortionCharacter = "distortion_character";
+inline constexpr auto distortionTone = "distortion_tone_db";
+inline constexpr auto distortionMix = "distortion_mix";
+inline constexpr auto effectOrder = "effect_order";
 inline constexpr auto outputGain = "outputGain";
 inline constexpr auto mix = "mix";
 inline constexpr auto bypass = "bypass";
@@ -106,7 +112,7 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
-    /** Applies a complete protocol-v1 EQ result. Must be called on the message thread. */
+    /** Applies a complete versioned chain result. Must be called on the message thread. */
     juce::Result applyAnalysisResultJson (const juce::String& json);
     juce::Result startDevelopmentCapture();
     void stopDevelopmentWork (bool acceptLatestPreview);
@@ -134,7 +140,12 @@ private:
     };
 
     std::array<std::array<Biquad, 2>, 6> filters;
+    std::array<Biquad, 2> distortionToneFilters;
     std::array<BandSmoothers, 6> bandSmoothers;
+    juce::SmoothedValue<double, juce::ValueSmoothingTypes::Linear> distortionDriveSmooth;
+    juce::SmoothedValue<double, juce::ValueSmoothingTypes::Linear> distortionCharacterSmooth;
+    juce::SmoothedValue<double, juce::ValueSmoothingTypes::Linear> distortionToneSmooth;
+    juce::SmoothedValue<double, juce::ValueSmoothingTypes::Linear> distortionMixSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> outputGainSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMixSmooth;
     double currentSampleRate { 48000.0 };

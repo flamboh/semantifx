@@ -21,21 +21,21 @@ def manifest():
         "matrix": {
             "backend": ["mock"],
             "iterations": [1, 2],
-            "parameter_initialization": ["zeros"],
+            "parameter_initialization": ["current"],
         },
     }
 
 
 class BenchmarkTests(unittest.TestCase):
     def test_matrix_expansion_has_stable_key_order(self):
-        expanded = expand_matrix({"iterations": [1, 2], "backend": ["mock", "text2fx"]})
+        expanded = expand_matrix({"iterations": [1, 2], "backend": ["mock", "clap"]})
         self.assertEqual(
             expanded,
             [
                 {"backend": "mock", "iterations": 1},
                 {"backend": "mock", "iterations": 2},
-                {"backend": "text2fx", "iterations": 1},
-                {"backend": "text2fx", "iterations": 2},
+                {"backend": "clap", "iterations": 1},
+                {"backend": "clap", "iterations": 2},
             ],
         )
 
@@ -55,11 +55,11 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(len(records), 4)
             self.assertEqual(len(rows), 4)
             self.assertTrue(all(record["status"] == "ok" for record in records))
-            self.assertTrue(all(len(record["parameters"]) == 18 for record in records))
+            self.assertTrue(all(len(record["parameters"]) == 22 for record in records))
             expected_audio = str((root / "fixtures" / "clip.wav").resolve())
             self.assertTrue(all(record["audio"]["path"] == expected_audio for record in records))
             self.assertNotIn("diagnostics", records[0])
-            self.assertEqual(rows[0]["parameter_count"], "18")
+            self.assertEqual(rows[0]["parameter_count"], "22")
             self.assertTrue(all(isinstance(record["random_seed"], int) for record in records))
 
     def test_manifest_rejects_unknown_matrix_option(self):
@@ -71,6 +71,24 @@ class BenchmarkTests(unittest.TestCase):
             with self.assertRaises(BenchmarkError) as raised:
                 load_manifest(path)
         self.assertIn("not_an_option", str(raised.exception))
+
+    def test_benchmark_applies_effect_order(self):
+        value = manifest()
+        value["prompts"] = value["prompts"][:1]
+        value["matrix"]["iterations"] = [1]
+        value["matrix"]["effect_order"] = ["distortion-eq"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "manifest.json"
+            jsonl_path = root / "benchmark.jsonl"
+            csv_path = root / "benchmark.csv"
+            manifest_path.write_text(json.dumps(value), encoding="utf-8")
+
+            run_benchmark(manifest_path, jsonl_path, csv_path)
+
+            record = json.loads(jsonl_path.read_text(encoding="utf-8"))
+        self.assertEqual(record["chain_order"], ["distortion-1", "eq-1"])
+        self.assertEqual(record["config"]["effect_order"], "distortion-eq")
 
 
 if __name__ == "__main__":

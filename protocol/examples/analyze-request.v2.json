@@ -1,0 +1,44 @@
+{
+  "protocol_version": "2",
+  "type": "analyze",
+  "request_id": "chain-demo-001",
+  "prompt": "warm and lightly saturated",
+  "audio": { "path": "/tmp/semantifx-capture.wav" },
+  "chain": [
+    {
+      "instance_id": "eq-1",
+      "effect_type": "eq",
+      "parameters": {
+        "low_shelf_gain_db": 0,
+        "low_shelf_cutoff_freq": 200,
+        "low_shelf_q_factor": 0.7071,
+        "band0_gain_db": 0,
+        "band0_cutoff_freq": 500,
+        "band0_q_factor": 0.7071,
+        "band1_gain_db": 0,
+        "band1_cutoff_freq": 3500,
+        "band1_q_factor": 0.7071,
+        "band2_gain_db": 0,
+        "band2_cutoff_freq": 9000,
+        "band2_q_factor": 0.7071,
+        "band3_gain_db": 0,
+        "band3_cutoff_freq": 14000,
+        "band3_q_factor": 0.7071,
+        "high_shelf_gain_db": 0,
+        "high_shelf_cutoff_freq": 12000,
+        "high_shelf_q_factor": 0.7071
+      }
+    },
+    {
+      "instance_id": "distortion-1",
+      "effect_type": "distortion",
+      "parameters": { "drive_db": 0, "character": 0.5, "tone_db": 0, "mix": 0.25 }
+    }
+  ],
+  "options": {
+    "backend": "clap",
+    "iterations": 100,
+    "parameter_initialization": "current",
+    "random_seed": 0
+  }
+}

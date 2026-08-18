@@ -1,44 +1,53 @@
 # SemantiFX
 
-SemantiFX explores a musician-centered way to control familiar audio effects
-with natural language. A musician captures a representative excerpt, describes
-the change they want, previews the resulting effect settings, and remains free
-to edit, compare, refine, or reject them.
+SemantiFX is a prompt-driven interface for general audio effects. Given a
+representative audio excerpt, a natural-language target, and an existing effect
+chain, it uses CLAP to optimize the chain's parameters toward the target. The
+result remains an ordinary, visible, editable effect configuration.
 
-This repository is at the **prototype** stage. The current question is:
+Think of it as an Ozone-style modular workspace for general effects, with a
+prompt describing the desired sound. SemantiFX does not initially decide which
+effects to use or how to order them. The first question is narrower:
 
-> Does an asynchronous capture → describe → analyze → compare workflow feel
-> compatible with music-making, and which interface makes the musician feel
-> most in control?
+> Given a fixed effect chain, can CLAP find useful, editable parameter settings
+> that move the input audio toward a natural-language target?
 
-## Current scope
+## Product direction
 
-- Parametric EQ only
+- General, ordered effect chains
+- Chain supplied by the host or user
+- CLAP-guided parameter optimization
 - Local inference
-- macOS Standalone, Audio Unit, and VST3 targets
-- Text input before integrated speech input
-- Visible, editable parameters with compare and undo
+- Inspectable, editable, automatable results
+- Chain assembly deliberately deferred
 
-The system is intentionally split at a narrow seam: JUCE owns deterministic
-real-time audio processing; the inference worker accepts an audio excerpt and a
-prompt, then returns a versioned set of named parameters. ML work never runs on
-the audio thread.
+## Current implementation
 
-See [Architecture](docs/architecture.md) and [Initial research plan](docs/research-plan.md).
+The working slice contains a six-band EQ and a SemantiFX-owned distortion in a
+user-selectable order. CLAP optimizes all 22 effect parameters through the
+selected differentiable topology, then the JUCE processor applies the same
+configuration in real time. The
+distortion exposes drive, character, tone, and parallel mix rather than a
+single generic drive knob.
+
+It builds as macOS Standalone, Audio Unit, and VST3 targets and supports
+capture, text prompting, progress previews, interruption, manual editing,
+bypass comparison, and state persistence. Protocol v2 identifies each effect
+instance and carries its current configuration. It is the only supported
+protocol.
+
+The system is split at a narrow seam: JUCE owns deterministic real-time audio
+processing; the inference worker accepts an audio excerpt, target prompt, and
+effect-chain description, then returns a versioned parameter suggestion. ML
+work never runs on the audio thread.
+
+See [Architecture](docs/architecture.md), [Domain language](CONTEXT.md), and
+[Initial research plan](docs/research-plan.md).
 
 ## Try it
 
-Explore three interaction directions in a browser:
-
-```sh
-bun prototype/server.ts
-```
-
-Then open <http://localhost:4173/?variant=A>. The bottom switcher moves among
-the guided studio, conversation, and workbench variants without losing the
-simulated session state.
-
-Run a real Text2FX analysis using the sibling checkout's existing environment:
+Run a real CLAP optimization using the sibling Text2FX environment for the
+model and audio-loading dependencies:
 
 ```sh
 scripts/analyze ../oss/text2fx/assets/guitar.wav "warm like a hug" 600
@@ -54,7 +63,8 @@ open plugin/build/Semantifx_artefacts/Debug/Standalone/Semantifx.app
 
 To try the complete development flow, pass audio through the app or plugin,
 enter a prompt, click **Listen 10s**, and then click **Shape sound**. The plugin
-runs Text2FX outside the audio and UI threads and applies the validated result.
+runs the CLAP optimizer outside the audio and UI threads and applies the
+validated result.
 **Import Analysis…** can still load `/tmp/semantifx-analysis.json` directly.
 The same build produces AU and VST3 artifacts. Run all automated checks with
 `scripts/check`.
@@ -132,16 +142,22 @@ ditto plugin/build/Semantifx_artefacts/Debug/VST3/Semantifx.vst3 \
 Open FL Studio again and load Semantifx. If it still shows the old build, scan
 again with **Rescan previously verified plugins** turned on.
 
-## Current integration edge
+## Current implementation edge
 
-The real inference worker and real-time plugin now share a strict, versioned
-18-parameter contract. The development build captures audio, keeps a local
-inference worker alive across requests, reports model-loading and optimization
-progress, and previews the evolving EQ curve. Once a preview exists, **Use
-current** interrupts optimization and applies that visible curve; Escape cancels
-and discards it. The worker deliberately uses an atomic file spool and embeds
-this checkout's path. Packaging a shared worker and replacing repository-relative
-paths remain distribution work.
+The real inference worker and real-time plugin share protocol v2's strict,
+22-parameter EQ + distortion contract. The development build captures audio,
+keeps a local inference worker alive across requests, reports model-loading and
+optimization progress, and previews the evolving suggestion. Once a preview
+exists, **Use current** interrupts optimization and applies that candidate;
+Escape cancels and discards it.
+
+This first distortion runs at the session sample rate. Oversampling is deferred,
+so high-drive settings can still alias; the worker reports that limitation with
+every result. Protocol v2 is intentionally fixed to one EQ and one distortion,
+but accepts either order. Supporting arbitrary supplied chains will require effect-schema
+negotiation, but chain assembly remains a separate future problem. The worker
+uses an atomic file spool and embeds this checkout's path. Packaging a shared
+worker and replacing repository-relative paths remain distribution work.
 
 See [the first measured baseline](docs/benchmark-baseline.md) and
 [plugin validation](docs/plugin-validation.md).

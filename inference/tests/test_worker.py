@@ -2,18 +2,19 @@ import io
 import json
 import unittest
 
+from semantifx_inference.chain_schema import default_chain
 from semantifx_inference.worker import run_stream
 
 
 class WorkerTests(unittest.TestCase):
     def test_one_response_per_nonempty_input_line(self):
         valid = {
-            "protocol_version": "1",
+            "protocol_version": "2",
             "type": "analyze",
             "request_id": "worker-1",
             "prompt": "dark",
             "audio": {"path": "/tmp/input.wav"},
-            "effects": ["eq"],
+            "chain": default_chain(),
         }
         source = [json.dumps(valid) + "\n", "\n", "not-json\n"]
         destination = io.StringIO()
@@ -28,12 +29,12 @@ class WorkerTests(unittest.TestCase):
 
     def test_diagnostics_are_separate_from_json_stream(self):
         valid = {
-            "protocol_version": "1",
+            "protocol_version": "2",
             "type": "analyze",
             "request_id": "worker-2",
             "prompt": "airy",
             "audio": {"path": "/tmp/input.wav"},
-            "effects": ["eq"],
+            "chain": default_chain(),
         }
         destination = io.StringIO()
         diagnostics = io.StringIO()
@@ -45,4 +46,3 @@ class WorkerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

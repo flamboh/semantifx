@@ -2,7 +2,7 @@ import time
 from typing import Optional, Tuple
 
 from .adapters.mock import MockAdapter
-from .adapters.text2fx import Text2FXAdapter
+from .adapters.clap import CLAPAdapter
 from .errors import SemantiFXError
 from .progress import AnalysisCancelled, ProgressCallback
 from .protocol import error_result, ok_result, validate_request
@@ -11,12 +11,12 @@ from .protocol import error_result, ok_result, validate_request
 def _adapter(name: str, progress: Optional[ProgressCallback] = None):
     if name == "mock":
         return MockAdapter()
-    if name == "text2fx":
-        return Text2FXAdapter(progress=progress)
+    if name == "clap":
+        return CLAPAdapter(progress=progress)
     raise SemantiFXError(
         "backend_unavailable",
         "Unknown inference backend: %s." % name,
-        ["Use 'mock' or 'text2fx'."],
+        ["Use 'mock' or 'clap'."],
     )
 
 
@@ -35,7 +35,11 @@ def analyze(
         adapter = _adapter(backend, progress)
         parameters, metrics, warnings, diagnostics = adapter.analyze(request)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        return ok_result(request["request_id"], backend, elapsed_ms, parameters, metrics, warnings), diagnostics
+        effect_order = [item["instance_id"] for item in request["chain"]]
+        return ok_result(
+            request["request_id"], backend, elapsed_ms, effect_order,
+            parameters, metrics, warnings
+        ), diagnostics
     except AnalysisCancelled:
         raise
     except SemantiFXError as exc:

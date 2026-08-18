@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "EqGraphMath.h"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 
@@ -149,7 +150,7 @@ public:
 
     void setSelectedBand (int index)
     {
-        selectedBand = juce::jlimit (0, 5, index);
+        selectedBand = juce::jlimit (-1, 5, index);
         for (auto& node : nodes) node->repaint();
     }
 
@@ -392,7 +393,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     productLabel.setFont (juce::FontOptions { 25.0f, juce::Font::bold });
     productLabel.setColour (juce::Label::textColourId, palette::text);
     addAndMakeVisible (productLabel);
-    subtitleLabel.setText ("Semantic equalizer", juce::dontSendNotification);
+    subtitleLabel.setText ("Prompt-driven effects", juce::dontSendNotification);
     subtitleLabel.setColour (juce::Label::textColourId, palette::muted);
     addAndMakeVisible (subtitleLabel);
     engineBadge.setText ("LOCAL  |  MS-CLAP", juce::dontSendNotification);
@@ -403,8 +404,19 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     engineBadge.setFont (juce::FontOptions { 11.0f, juce::Font::bold });
     addAndMakeVisible (engineBadge);
 
+    orderSelector.addItem ("EQ  →  DISTORTION", 1);
+    orderSelector.addItem ("DISTORTION  →  EQ", 2);
+    orderSelector.setTitle ("Effect order");
+    orderSelector.setTooltip ("Choose whether EQ or distortion processes the signal first");
+    orderSelector.setColour (juce::ComboBox::backgroundColourId, palette::panel);
+    orderSelector.setColour (juce::ComboBox::outlineColourId, palette::border);
+    orderSelector.setColour (juce::ComboBox::textColourId, palette::text);
+    addAndMakeVisible (orderSelector);
+    orderAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        pluginProcessor.parameters, parameter::effectOrder, orderSelector);
+
     bypassButton.setTitle ("Hear original signal");
-    bypassButton.setDescription ("Bypass all semantic EQ processing while preserving its settings");
+    bypassButton.setDescription ("Bypass all effect processing while preserving its settings");
     bypassButton.setTooltip ("Compare the unprocessed original with the shaped sound");
     bypassButton.setColour (juce::ToggleButton::tickColourId, palette::primary);
     addAndMakeVisible (bypassButton);
@@ -412,7 +424,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
         pluginProcessor.parameters, parameter::bypass, bypassButton);
 
     importButton.setTitle ("Import analysis result");
-    importButton.setDescription ("Import a Semantifx protocol version 1 JSON result");
+    importButton.setDescription ("Import a Semantifx protocol version 2 JSON result");
     importButton.setTooltip ("Import an existing Semantifx analysis result");
     importButton.setColour (juce::TextButton::buttonColourId, palette::border);
     importButton.onClick = [safeThis = juce::Component::SafePointer<PluginEditor> { this }]
@@ -456,7 +468,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     addAndMakeVisible (workflowEyebrow);
     promptEditor.setTextToShowWhenEmpty ("Describe a direction - \"brighter, but keep the body\"", palette::muted);
     promptEditor.setTitle ("Describe the sound direction");
-    promptEditor.setDescription ("Natural-language target for the local semantic EQ analysis");
+    promptEditor.setDescription ("Natural-language target for local effect-chain optimization");
     promptEditor.setTooltip ("Describe how you want the captured audio to change");
     promptEditor.setMultiLine (false);
     promptEditor.onReturnKey = [this] { beginAnalysis(); };
@@ -469,7 +481,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     captureButton.onClick = [this] { beginCapture(); };
     addAndMakeVisible (captureButton);
     analyzeButton.setTitle ("Shape sound from description");
-    analyzeButton.setDescription ("Run the local 600-iteration Text2FX analysis on the captured audio");
+    analyzeButton.setDescription ("Run the local 600-iteration CLAP optimization on the captured audio");
     analyzeButton.setTooltip ("Analyze the capture using the typed direction");
     analyzeButton.setColour (juce::TextButton::buttonColourId, palette::primary);
     analyzeButton.setColour (juce::TextButton::textColourOffId, palette::background);
@@ -511,9 +523,26 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
         button.onClick = [this, band] { selectBand (static_cast<int> (band)); };
         addAndMakeVisible (button);
     }
+    distortionControls[0] = std::make_unique<ParameterControl> (
+        *this, pluginProcessor.parameters, parameter::distortionDrive, "Drive", " dB");
+    distortionControls[1] = std::make_unique<ParameterControl> (
+        *this, pluginProcessor.parameters, parameter::distortionCharacter, "Character", "");
+    distortionControls[2] = std::make_unique<ParameterControl> (
+        *this, pluginProcessor.parameters, parameter::distortionTone, "Tone", " dB");
+    distortionControls[3] = std::make_unique<ParameterControl> (
+        *this, pluginProcessor.parameters, parameter::distortionMix, "Distortion mix", "");
+    distortionButton.setTitle ("Select distortion effect");
+    distortionButton.setTooltip ("Show drive, character, tone, and distortion mix controls");
+    distortionButton.setColour (juce::TextButton::buttonColourId, palette::panel);
+    distortionButton.onClick = [this] { selectDistortion(); };
+    addAndMakeVisible (distortionButton);
     mixControl = std::make_unique<ParameterControl> (*this, pluginProcessor.parameters, parameter::mix, "Mix", " %");
     outputControl = std::make_unique<ParameterControl> (*this, pluginProcessor.parameters, parameter::outputGain,
                                                         "Output", " dB");
+    mixControl->label.setVisible (true);
+    mixControl->slider.setVisible (true);
+    outputControl->label.setVisible (true);
+    outputControl->slider.setVisible (true);
     selectedBandLabel.setColour (juce::Label::textColourId, palette::text);
     selectedBandLabel.setFont (juce::FontOptions { 14.0f, juce::Font::bold });
     addAndMakeVisible (selectedBandLabel);
@@ -559,6 +588,7 @@ void PluginEditor::resized()
     productLabel.setBounds (header.removeFromLeft (175).removeFromTop (34));
     subtitleLabel.setBounds (22, 43, 190, 22);
     engineBadge.setBounds (214, 20, 128, 28);
+    orderSelector.setBounds (350, 22, std::clamp (getWidth() - 636, 174, 220), 34);
     bypassButton.setBounds (getWidth() - 162, 22, 142, 34);
     importButton.setBounds (getWidth() - 276, 22, 104, 34);
     importStatus.setBounds (getWidth() - 470, 51, 290, 20);
@@ -583,19 +613,23 @@ void PluginEditor::resized()
 
     auto inspector = juce::Rectangle<int> { 32, getHeight() - 158, getWidth() - 64, 130 };
     auto rail = inspector.removeFromTop (31);
-    const auto bandWidth = std::max (86, (rail.getWidth() - 230) / 6);
+    const auto bandWidth = std::min (118, std::max (76, (rail.getWidth() - 230) / 7));
     for (auto& button : bandButtons)
     {
         button.setBounds (rail.removeFromLeft (bandWidth).reduced (2, 0));
     }
+    distortionButton.setBounds (rail.removeFromLeft (bandWidth).reduced (2, 0));
     lastDirectionLabel.setBounds (rail);
     auto controlArea = inspector;
     selectedBandLabel.setBounds (controlArea.removeFromLeft (130).removeFromTop (28));
-    const auto knobWidth = std::min (125, std::max (94, (controlArea.getWidth() - 238) / 3));
-    for (int index = 0; index < 3; ++index)
+    const auto visibleControlCount = distortionSelected ? 4 : 3;
+    const auto knobWidth = std::min (125, std::max (82, (controlArea.getWidth() - 238) / visibleControlCount));
+    for (int index = 0; index < visibleControlCount; ++index)
     {
         auto cell = controlArea.removeFromLeft (knobWidth).reduced (5, 1);
-        auto& control = *bandControls[static_cast<size_t> (selectedBand * 3 + index)];
+        auto& control = distortionSelected
+            ? *distortionControls[static_cast<size_t> (index)]
+            : *bandControls[static_cast<size_t> (selectedBand * 3 + index)];
         control.label.setBounds (cell.removeFromTop (18));
         control.slider.setBounds (cell);
     }
@@ -620,6 +654,7 @@ bool PluginEditor::keyPressed (const juce::KeyPress& key)
 
 void PluginEditor::selectBand (int index)
 {
+    distortionSelected = false;
     selectedBand = juce::jlimit (0, 5, index);
     responseGraph->setSelectedBand (selectedBand);
     static constexpr std::array<const char*, 6> names { "LOW SHELF", "LOW MID", "MID", "HIGH MID", "AIR", "HIGH SHELF" };
@@ -637,6 +672,34 @@ void PluginEditor::selectBand (int index)
             item.slider.setVisible (selected);
             item.slider.setColour (juce::Slider::rotarySliderFillColourId, palette::bands[band]);
         }
+    }
+    distortionButton.setColour (juce::TextButton::buttonColourId, palette::panel);
+    for (auto& control : distortionControls)
+    {
+        control->label.setVisible (false);
+        control->slider.setVisible (false);
+    }
+    resized();
+}
+
+void PluginEditor::selectDistortion()
+{
+    distortionSelected = true;
+    responseGraph->setSelectedBand (-1);
+    selectedBandLabel.setText ("DISTORTION", juce::dontSendNotification);
+    for (auto& button : bandButtons)
+        button.setColour (juce::TextButton::buttonColourId, palette::panel);
+    distortionButton.setColour (juce::TextButton::buttonColourId, palette::bands.back().withAlpha (0.72f));
+    for (auto& control : bandControls)
+    {
+        control->label.setVisible (false);
+        control->slider.setVisible (false);
+    }
+    for (auto& control : distortionControls)
+    {
+        control->label.setVisible (true);
+        control->slider.setVisible (true);
+        control->slider.setColour (juce::Slider::rotarySliderFillColourId, palette::bands.back());
     }
     resized();
 }
@@ -720,7 +783,7 @@ void PluginEditor::updateWorkflowState()
     const auto canUsePreview = ! capturing && latestProgress.has_value() && latestProgress->hasParameters;
     cancelButton.setButtonText (canUsePreview ? "Use current" : "Cancel");
     cancelButton.setTitle (canUsePreview ? "Stop and use the latest preview" : "Cancel capture or analysis");
-    cancelButton.setTooltip (canUsePreview ? "Stop optimizing and apply the latest visible EQ curve"
+    cancelButton.setTooltip (canUsePreview ? "Stop optimizing and apply the latest effect-chain preview"
                                            : "Stop the active listening or analysis task");
     captureProgress.setVisible (capturing);
     workflowStatus.setColour (juce::Label::textColourId, palette::muted);
@@ -751,7 +814,7 @@ void PluginEditor::updateWorkflowState()
         const auto direction = pluginProcessor.getLastAppliedDirection();
         lastDirectionLabel.setText ("Last direction: " + direction, juce::dontSendNotification);
         workflowEyebrow.setText ("APPLIED", juce::dontSendNotification);
-        workflowStatus.setText (pluginProcessor.getDevelopmentStatus() + " - edit any band below",
+        workflowStatus.setText (pluginProcessor.getDevelopmentStatus() + " - edit any effect below",
                                 juce::dontSendNotification);
     }
     else if (analysisState == DevelopmentAnalysisState::failed)

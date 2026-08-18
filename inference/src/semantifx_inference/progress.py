@@ -1,7 +1,9 @@
 import json
 import os
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Sequence
+
+from .protocol import PROTOCOL_VERSION
 
 
 ProgressCallback = Callable[[str, int, int, Optional[List[dict]]], None]
@@ -14,9 +16,15 @@ class AnalysisCancelled(RuntimeError):
 class ProgressFileWriter:
     """Atomically publishes the latest analysis progress snapshot."""
 
-    def __init__(self, destination: Path, request_id: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        destination: Path,
+        request_id: Optional[str] = None,
+        effect_order: Sequence[str] = ("eq-1", "distortion-1"),
+    ) -> None:
         self.destination = Path(destination)
         self.request_id = request_id
+        self.effect_order = list(effect_order)
 
     def __call__(
         self,
@@ -26,11 +34,12 @@ class ProgressFileWriter:
         parameters: Optional[List[dict]] = None,
     ) -> None:
         snapshot = {
-            "protocol_version": "1",
+            "protocol_version": PROTOCOL_VERSION,
             "type": "analysis_progress",
             "phase": phase,
             "step": step,
             "total_steps": total_steps,
+            "chain_order": self.effect_order,
         }
         if self.request_id is not None:
             snapshot["request_id"] = self.request_id

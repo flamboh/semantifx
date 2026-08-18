@@ -1,67 +1,95 @@
 # Architecture
 
-## Decision
+## Product boundary
 
-SemantiFX begins as an asynchronous parameter-suggestion instrument. It is not
-a continuously running ML audio processor.
+SemantiFX optimizes a supplied effect chain; it does not initially assemble one.
+The host or user chooses the effect instances and their order. SemantiFX searches
+only their parameter space for a configuration that moves captured audio toward
+a natural-language target.
 
 ```text
-DAW audio ──> JUCE real-time DSP ──> audio output
-    │                  ▲
-    │ captured excerpt │ smoothed parameter snapshot
-    ▼                  │
-inference worker ──────┘
-    ▲
-    │ prompt
-plugin UI
+                       target prompt
+                            │
+captured excerpt ────────────┼──> chain optimizer
+                            │          │
+supplied effect chain ───────┘          │ parameter suggestion
+                                       ▼
+DAW audio ───────────────> JUCE effect chain ───────────────> audio output
 ```
+
+This is an asynchronous suggestion workflow, not a continuously running ML
+audio processor. CLAP evaluates rendered candidates during optimization; it
+does not run on the real-time audio path.
 
 ## Modules and seams
 
-### Audio effect module
+### Audio effect host
 
-The host-facing JUCE processor owns real-time DSP, parameter automation, state
-persistence, and smoothing. Its inference-facing seam accepts a complete named
-parameter snapshot. Applying a result must not allocate, block, launch a
-process, load a model, or touch the filesystem on the audio thread.
+The host-facing JUCE processor owns the instantiated effect chain, real-time
+DSP, parameter automation, state persistence, and smoothing. Its
+inference-facing seam accepts a complete parameter suggestion for that exact
+chain. Applying a result must not allocate, block, launch a process, load a
+model, or touch the filesystem on the audio thread.
 
-### Inference module
+### Chain optimizer
 
-The inference module has one external operation:
+The optimizer has one external operation:
 
 ```text
-analyze(AnalysisRequest) -> AnalysisResult | AnalysisError
+optimize(audio, targetPrompt, effectChain) -> suggestion | error
 ```
 
-Its interface includes schema versioning, parameter names and units, algorithm
-metadata, cancellation semantics, and structured errors. PyTorch tensors,
-CLAP embeddings, optimizer state, and Python class names are implementation
-details and must not cross the seam.
+The chain description must preserve order and give every effect instance a
+stable identity, type, parameter schema, and current configuration. Stable
+instance identity matters when a chain contains the same effect type more than
+once.
 
-The initial adapters are a deterministic mock and a local Text2FX Python
-implementation. A second real adapter would make this seam durable; until then,
-we keep it deliberately small rather than designing a general ML platform.
+The result contains a complete, instance-addressed parameter suggestion plus
+algorithm metadata. Schema versions, names, ranges, units, cancellation
+semantics, and structured errors cross the boundary. PyTorch tensors, CLAP
+embeddings, gradients, and optimizer state do not.
 
-### Interaction module
+The two adapters are a deterministic mock and the real CLAP adapter. The CLAP
+adapter uses Text2FX's model and runtime dependencies but owns its
+differentiable EQ + distortion chain inside SemantiFX, matching the selected
+JUCE topology and parameter schema.
 
-The editor owns capture state, prompt state, analysis progress, result preview,
-A/B comparison, refinement, undo, and rejection. It never treats an embedding
-objective as calibrated confidence. The musician sees concrete effect changes
-and retains manual control.
+### Interaction surface
+
+The editor owns capture state, the target prompt, optimization progress,
+suggestion preview, comparison, and rejection. It presents the supplied chain
+and the parameters changed by optimization. It never treats an embedding
+objective as calibrated confidence, and the user retains manual control.
+
+## Protocol evolution
+
+Protocol v2 is the only supported protocol. It carries stable instance
+identities, current physical parameter values, and exactly 22 named parameters
+for the two-instance `eq-1` + `distortion-1` chain. Either order is supported
+and echoed in results. Supporting arbitrary supplied chains still requires
+effect-schema negotiation, repeated effect types, bypass state, and validation
+of a result against the exact chain that produced it.
+
+Chain assembly is a separate future operation. It may eventually select effect
+types, counts, and order, but it must not be hidden inside chain optimization.
 
 ## DSP parity requirement
 
-Text2FX optimizes through `dasp-pytorch`, while playback uses JUCE DSP. A named
-parameter is only portable if both implementations agree on its range, unit,
-topology, and audible response. Before treating inference output as valid, we
-will compare impulse responses, frequency responses, and rendered fixtures for
-identical settings.
+The CLAP worker optimizes through differentiable processors while playback uses
+JUCE DSP. A parameter is portable only if both implementations agree on its range,
+unit, topology, and audible response. Every supported effect type therefore
+needs parity fixtures covering impulse or frequency responses where applicable
+and rendered audio for identical configurations.
 
-## Prototype constraints
+## Current constraints
 
+- The shipped implementation is one EQ and one distortion in either order.
+- Distortion is currently base-rate; oversampling and its latency contract are
+  deferred, so high-drive aliasing remains a known limitation.
+- Order changes switch topology at a block boundary without a dual-path
+  crossfade.
 - Inference runs outside the plugin process where practical.
-- Temporary WAV/JSON or JSONL process communication is acceptable initially.
+- Temporary WAV/JSON, JSONL, and atomic spool files are acceptable during
+  development.
 - No inference operation may run on the audio callback.
-- The UI prototype is throwaway and must be absorbed or deleted after its
-  interaction question is answered.
-
+- The optimizer may change parameters, but not effect instances or their order.

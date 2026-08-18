@@ -1,6 +1,5 @@
 #include "AnalysisResult.h"
 
-#include <algorithm>
 #include <cmath>
 
 namespace semantifx::protocol
@@ -26,13 +25,22 @@ bool isInteger (const juce::var& value) noexcept
     return value.isInt() || value.isInt64();
 }
 
-juce::String expectedUnit (const juce::String& name)
+juce::Result parseEffectOrder (const juce::var& value, EffectOrder& destination)
 {
-    if (name.endsWith ("_gain_db"))
-        return "dB";
-    if (name.endsWith ("_freq"))
-        return "Hz";
-    return "ratio";
+    const auto* order = value.getArray();
+    if (order == nullptr || order->size() != 2
+        || ! (*order)[0].isString() || ! (*order)[1].isString())
+        return juce::Result::fail ("Expected chain_order to contain two effect instance IDs.");
+
+    const auto first = (*order)[0].toString();
+    const auto second = (*order)[1].toString();
+    if (first == "eq-1" && second == "distortion-1")
+        destination = EffectOrder::eqThenDistortion;
+    else if (first == "distortion-1" && second == "eq-1")
+        destination = EffectOrder::distortionThenEq;
+    else
+        return juce::Result::fail ("chain_order must contain eq-1 and distortion-1 exactly once.");
+    return juce::Result::ok();
 }
 
 juce::Result parseParameters (const juce::var& parameters, AnalysisResult& destination)
@@ -41,45 +49,49 @@ juce::Result parseParameters (const juce::var& parameters, AnalysisResult& desti
     if (array == nullptr)
         return juce::Result::fail ("Expected \"parameters\" to be an array.");
 
-    std::array<bool, canonicalParameterNames.size()> found {};
-    for (const auto& entry : *array)
+    if (array->size() != static_cast<int> (chainParameterSpecs.size()))
+        return juce::Result::fail ("Protocol-v2 results must contain exactly "
+                                   + juce::String { chainParameterSpecs.size() } + " parameters.");
+
+    for (size_t index = 0; index < chainParameterSpecs.size(); ++index)
     {
+        const auto& entry = (*array)[static_cast<int> (index)];
         auto* parameter = entry.getDynamicObject();
         if (parameter == nullptr)
             return juce::Result::fail ("Every parameter must be a JSON object.");
 
-        const auto effect = parameter->getProperty ("effect");
+        const auto instanceValue = parameter->getProperty ("effect_instance_id");
+        const auto effectValue = parameter->getProperty ("effect");
         const auto nameValue = parameter->getProperty ("name");
         const auto numericValue = parameter->getProperty ("value");
-        const auto unit = parameter->getProperty ("unit");
-        if (! effect.isString() || effect.toString() != "eq")
-            return juce::Result::fail ("Every imported parameter must have effect \"eq\".");
-        if (! nameValue.isString())
-            return juce::Result::fail ("Every imported parameter must have a string name.");
+        const auto unitValue = parameter->getProperty ("unit");
+        if (! instanceValue.isString() || ! effectValue.isString() || ! nameValue.isString())
+            return juce::Result::fail ("Every protocol-v2 parameter needs string instance, effect, and name fields.");
         if (! isNumeric (numericValue) || ! std::isfinite (static_cast<double> (numericValue)))
             return juce::Result::fail ("Parameter \"" + nameValue.toString() + "\" must have a finite numeric value.");
 
+        const auto instance = instanceValue.toString();
+        const auto effect = effectValue.toString();
         const auto name = nameValue.toString();
-        const auto iterator = std::find_if (canonicalParameterNames.begin(), canonicalParameterNames.end(),
-                                            [&name] (const char* candidate) { return name == candidate; });
-        if (iterator == canonicalParameterNames.end())
-            return juce::Result::fail ("Unknown EQ parameter \"" + name + "\".");
-
-        const auto index = static_cast<size_t> (std::distance (canonicalParameterNames.begin(), iterator));
-        if (found[index])
-            return juce::Result::fail ("Duplicate EQ parameter \"" + name + "\".");
-        if (! unit.isString() || unit.toString() != expectedUnit (name))
-            return juce::Result::fail ("Parameter \"" + name + "\" has the wrong unit.");
+        const auto& expected = chainParameterSpecs[index];
+        if (instance != expected.effectInstanceId || effect != expected.effectType || name != expected.name)
+            return juce::Result::fail ("Expected chain parameter \""
+                                       + juce::String { expected.effectInstanceId } + ":" + expected.name
+                                       + "\" at index " + juce::String { index } + ".");
+        if (! unitValue.isString() || unitValue.toString() != expected.unit)
+            return juce::Result::fail ("Parameter \"" + instance + ":" + name + "\" has the wrong unit.");
 
         destination.values[index] = static_cast<double> (numericValue);
-        found[index] = true;
     }
 
-    for (size_t index = 0; index < found.size(); ++index)
-        if (! found[index])
-            return juce::Result::fail ("Missing EQ parameter \""
-                                       + juce::String { canonicalParameterNames[index] } + "\".");
+    return juce::Result::ok();
+}
 
+juce::Result parseVersion (juce::DynamicObject& object)
+{
+    const auto version = object.getProperty ("protocol_version");
+    if (! version.isString() || version.toString() != "2")
+        return juce::Result::fail ("Expected \"protocol_version\" to be \"2\".");
     return juce::Result::ok();
 }
 } // namespace
@@ -94,8 +106,11 @@ juce::Result parseAnalysisResult (const juce::String& json, AnalysisResult& dest
     if (object == nullptr)
         return juce::Result::fail ("Analysis result must be a JSON object.");
 
-    for (const auto& expectation : std::array<std::pair<juce::Identifier, juce::String>, 3> {{
-             { "protocol_version", "1" }, { "type", "analysis_result" }, { "status", "ok" } }})
+    destination = {};
+    if (const auto result = parseVersion (*object); result.failed())
+        return result;
+    for (const auto& expectation : std::array<std::pair<juce::Identifier, juce::String>, 2> {{
+             { "type", "analysis_result" }, { "status", "ok" } }})
         if (const auto result = requireStringProperty (*object, expectation.first, expectation.second); result.failed())
             return result;
 
@@ -103,6 +118,9 @@ juce::Result parseAnalysisResult (const juce::String& json, AnalysisResult& dest
     if (! requestId.isString() || requestId.toString().trim().isEmpty())
         return juce::Result::fail ("Analysis result request_id must be a non-empty string.");
     destination.requestId = requestId.toString();
+    if (const auto result = parseEffectOrder (object->getProperty ("chain_order"), destination.effectOrder);
+        result.failed())
+        return result;
     return parseParameters (object->getProperty ("parameters"), destination);
 }
 
@@ -116,10 +134,11 @@ juce::Result parseAnalysisProgress (const juce::String& json, AnalysisProgress& 
     if (object == nullptr)
         return juce::Result::fail ("Analysis progress must be a JSON object.");
 
-    for (const auto& expectation : std::array<std::pair<juce::Identifier, juce::String>, 2> {{
-             { "protocol_version", "1" }, { "type", "analysis_progress" } }})
-        if (const auto result = requireStringProperty (*object, expectation.first, expectation.second); result.failed())
-            return result;
+    destination = {};
+    if (const auto result = parseVersion (*object); result.failed())
+        return result;
+    if (const auto result = requireStringProperty (*object, "type", "analysis_progress"); result.failed())
+        return result;
 
     const auto phase = object->getProperty ("phase");
     const auto requestId = object->getProperty ("request_id");
@@ -142,6 +161,10 @@ juce::Result parseAnalysisProgress (const juce::String& json, AnalysisProgress& 
     destination.phase = phase.toString();
     destination.step = static_cast<int> (stepValue);
     destination.totalSteps = static_cast<int> (totalStepsValue);
+    if (const auto result = parseEffectOrder (object->getProperty ("chain_order"),
+                                              destination.preview.effectOrder);
+        result.failed())
+        return result;
 
     const auto parameters = object->getProperty ("parameters");
     destination.hasParameters = ! parameters.isVoid();
@@ -159,10 +182,10 @@ juce::Result parseAnalysisCancellation (const juce::String& json, juce::String& 
     auto* object = root.getDynamicObject();
     if (object == nullptr)
         return juce::Result::fail ("Analysis cancellation must be a JSON object.");
-    for (const auto& expectation : std::array<std::pair<juce::Identifier, juce::String>, 2> {{
-             { "protocol_version", "1" }, { "type", "analysis_cancelled" } }})
-        if (const auto result = requireStringProperty (*object, expectation.first, expectation.second); result.failed())
-            return result;
+    if (const auto result = parseVersion (*object); result.failed())
+        return result;
+    if (const auto result = requireStringProperty (*object, "type", "analysis_cancelled"); result.failed())
+        return result;
 
     const auto value = object->getProperty ("request_id");
     if (! value.isString() || value.toString().trim().isEmpty())

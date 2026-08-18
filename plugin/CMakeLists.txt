@@ -27,7 +27,7 @@ juce_add_plugin(Semantifx
   PLUGIN_CODE Smeq
   FORMATS ${SEMANTIFX_FORMATS}
   PRODUCT_NAME "Semantifx"
-  DESCRIPTION "Musician-centered semantic equalizer"
+  DESCRIPTION "Prompt-driven audio effects"
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT FALSE
   NEEDS_MIDI_OUTPUT FALSE
@@ -42,6 +42,7 @@ target_sources(Semantifx PRIVATE
   src/AnalysisResult.cpp
   src/AnalysisResult.h
   src/CaptureBuffer.h
+  src/DistortionMath.h
   src/PluginEditor.cpp
   src/PluginEditor.h
   src/PluginProcessor.cpp
@@ -74,6 +75,10 @@ enable_testing()
 add_executable(semantifx_eq_tests tests/EqMathTests.cpp)
 target_include_directories(semantifx_eq_tests PRIVATE src)
 add_test(NAME semantifx_eq_tests COMMAND semantifx_eq_tests)
+
+add_executable(semantifx_distortion_tests tests/DistortionMathTests.cpp)
+target_include_directories(semantifx_distortion_tests PRIVATE src)
+add_test(NAME semantifx_distortion_tests COMMAND semantifx_distortion_tests)
 
 add_executable(semantifx_protocol_tests
   tests/AnalysisResultTests.cpp

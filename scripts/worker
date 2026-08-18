@@ -14,4 +14,4 @@ fi
 exec env PYTHONPATH="$repo_dir/inference/src" "$python" \
   -m semantifx_inference.spool_worker \
   --directory "$spool_dir" \
-  --default-backend text2fx
+  --default-backend clap

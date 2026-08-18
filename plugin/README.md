@@ -1,8 +1,12 @@
 # Semantifx JUCE plugin
 
-This directory contains the first runnable EQ-only plugin slice. It builds a
-Standalone application plus AU and VST3 plug-ins on macOS. JUCE is fetched at
-the pinned `8.0.8` tag during configuration.
+This directory contains SemantiFX's first multi-effect slice: a six-band
+parametric EQ and a SemantiFX-owned distortion in either order. The product
+direction is prompt-driven optimization of general, supplied effect chains;
+this plugin proves the host, inference, and real-time DSP seam without
+implementing chain assembly. It builds a Standalone
+application plus AU and VST3 plug-ins on macOS. JUCE is fetched at the pinned
+`8.0.8` tag during configuration.
 
 ## Build and run
 
@@ -27,32 +31,36 @@ Audio Unit and VST3 directories are not mutated by an ordinary build.
 
 - Low and high shelf gain, frequency, and Q
 - Four bell bands, each with gain, frequency, and Q
+- Distortion drive, character, 3 kHz tone shelf, and parallel mix
+- Selectable EQ → distortion or distortion → EQ order
 - Output trim and wet/dry mix
 - Smooth bypass
-- Protocol-v1 analysis-result JSON import
+- Protocol-v2 EQ → distortion result import
 
-The 18 EQ parameters and their ranges mirror Text2FX/dasp-pytorch's
-`ParametricEQ`, allowing optimized values to transfer without a mapping layer.
-All controls are host-automatable and serialized in plugin state. Filter
+The 18 EQ parameters and their ranges mirror dasp-pytorch's `ParametricEQ`. The
+four distortion parameters mirror SemantiFX's differentiable processor. All
+controls are host-automatable and serialized in plugin state. Filter
 coefficients are recalculated at a fixed control interval, while parameters,
 output gain, mix, and bypass transitions are smoothed. The audio callback does
-not allocate or lock.
+not allocate or lock. Effect-order changes take effect at the next audio block;
+there is no dual-path crossfade yet, so rapid order automation can click.
 
-The editor's **Import Analysis…** button accepts a complete successful
-protocol-v1 result, validates all 18 named EQ values and units, clamps values
-to the plugin's published parameter ranges, and notifies the host of each
-change. Import and parsing run on the UI thread, never the audio thread.
+The editor's **Import Analysis…** button accepts a complete successful v2
+result. It validates every name, unit, effect type, instance identity, and
+parameter position, clamps values to the plugin's published ranges, and
+notifies the host of each change. Import and parsing run on the UI thread,
+never the audio thread.
 
 ## Development-only capture and analysis
 
 The editor also contains a deliberately prominent **DEVELOPMENT ONLY** panel
 for testing the complete local interaction:
 
-1. Enter a prompt and click **Capture 10s** while audio is passing through.
-2. After capture reaches 100%, click **Analyze**.
+1. Enter a prompt and click **Listen 10s** while audio is passing through.
+2. After capture reaches 100%, click **Shape sound**.
 3. The plugin writes a temporary WAV, submits a 600-iteration request to a
-   persistent local worker, validates its protocol-v1 JSON, and applies the
-   result.
+   persistent local worker, validates its protocol-v2 JSON, and applies the
+   complete effect-chain result, including its order.
 4. Before the optimizer has a valid candidate, **Cancel** discards the request.
    After the first candidate, it becomes **Use current** and applies the latest
    visible curve after interrupting the optimizer. Escape always cancels and
@@ -74,7 +82,7 @@ If model loading or another non-cooperative phase does not stop within three
 seconds, the plugin terminates that worker and lazily starts a new one for the
 next request; this intentionally sacrifices the cache to keep the UI responsive.
 
-This is prototype infrastructure, not a distribution design. CMake embeds the
+This is development infrastructure, not a distribution design. CMake embeds the
 local repository root as `SEMANTIFX_DEVELOPMENT_REPO_PATH`, so the resulting
 binary expects this checkout's `scripts/worker` to remain at that path. The
 script in turn expects the sibling Text2FX environment described in the root

@@ -12,6 +12,7 @@ import time
 from typing import Callable, Optional, Tuple
 
 from .progress import AnalysisCancelled, ProgressFileWriter
+from .protocol import PROTOCOL_VERSION
 from .service import analyze
 
 
@@ -46,10 +47,10 @@ def _remove_matching_stop(directory: Path, request_id: str) -> None:
 class SpoolProgress:
     """Publishes progress and turns a matching stop marker into cancellation."""
 
-    def __init__(self, directory: Path, request_id: str) -> None:
+    def __init__(self, directory: Path, request_id: str, effect_order) -> None:
         self.directory = directory
         self.request_id = request_id
-        self.writer = ProgressFileWriter(directory / "progress.json", request_id)
+        self.writer = ProgressFileWriter(directory / "progress.json", request_id, effect_order)
 
     def __call__(self, phase, step, total_steps, parameters=None) -> None:
         self.writer(phase, step, total_steps, parameters)
@@ -60,11 +61,13 @@ class SpoolProgress:
 def process_request(
     request: object,
     directory: Path,
-    default_backend: str = "text2fx",
+    default_backend: str = "clap",
     analyzer: Analyzer = analyze,
 ) -> None:
     request_id = request.get("request_id") if isinstance(request, dict) else None
-    progress = SpoolProgress(directory, request_id) if isinstance(request_id, str) else None
+    chain = request.get("chain", []) if isinstance(request, dict) else []
+    effect_order = [item.get("instance_id") for item in chain if isinstance(item, dict)]
+    progress = SpoolProgress(directory, request_id, effect_order) if isinstance(request_id, str) else None
     try:
         if progress is not None:
             options = request.get("options", {})
@@ -75,7 +78,7 @@ def process_request(
             raise AnalysisCancelled()
     except AnalysisCancelled:
         result = {
-            "protocol_version": "1",
+            "protocol_version": PROTOCOL_VERSION,
             "type": "analysis_cancelled",
             "request_id": request_id,
         }
@@ -86,7 +89,7 @@ def process_request(
 
 def run_spool(
     directory: Path,
-    default_backend: str = "text2fx",
+    default_backend: str = "clap",
     poll_seconds: float = 0.05,
 ) -> int:
     directory.mkdir(parents=True, exist_ok=True)
@@ -114,7 +117,7 @@ def run_spool(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the SemantiFX development spool worker.")
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--default-backend", choices=("mock", "text2fx"), default="text2fx")
+    parser.add_argument("--default-backend", choices=("mock", "clap"), default="clap")
     return parser
 
 

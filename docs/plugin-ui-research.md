@@ -1,6 +1,10 @@
-# Semantifx plugin UI research
+# Initial EQ editor research
 
 Research date: 2026-07-11. Scope: first-party product documentation and JUCE documentation only.
+
+This research informed the current fixed-EQ compatibility slice. SemantiFX has
+since broadened to supplied effect chains, so EQ-specific layout recommendations
+are historical context rather than the product roadmap.
 
 ## Patterns in shipped plug-ins
 

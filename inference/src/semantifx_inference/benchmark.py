@@ -4,11 +4,11 @@ import hashlib
 import itertools
 import json
 from pathlib import Path
-import random
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
+from .chain_schema import DISTORTION_THEN_EQ, EQ_THEN_DISTORTION, default_chain
 from .errors import SemantiFXError
 from .protocol import validate_request
 from .service import analyze
@@ -17,6 +17,7 @@ from .service import analyze
 BENCHMARK_VERSION = "1"
 _MATRIX_KEYS = (
     "backend",
+    "effect_order",
     "model",
     "criterion",
     "iterations",
@@ -37,6 +38,7 @@ _CSV_FIELDS = (
     "repetition",
     "random_seed",
     "backend",
+    "chain_order_json",
     "status",
     "elapsed_ms",
     "wall_elapsed_ms",
@@ -108,14 +110,15 @@ def load_manifest(path: Path) -> dict:
         if not isinstance(values, list) or not values:
             raise BenchmarkError("matrix.%s must be a non-empty array." % key)
     for config in expand_matrix(matrix):
+        order = DISTORTION_THEN_EQ if config.get("effect_order") == "distortion-eq" else EQ_THEN_DISTORTION
         validation_request = {
-            "protocol_version": "1",
+            "protocol_version": "2",
             "type": "analyze",
             "request_id": "benchmark-manifest-validation",
             "prompt": "validation",
             "audio": {"path": "validation.wav"},
-            "effects": ["eq"],
-            "options": config,
+            "chain": default_chain(order),
+            "options": {key: item for key, item in config.items() if key != "effect_order"},
         }
         try:
             validate_request(validation_request)
@@ -146,24 +149,6 @@ def _case_seed(base_seed: int, audio_id: str, prompt_id: str, config: dict) -> i
     return (base_seed + offset) % 4294967296
 
 
-def _seed_runtime(seed: int, backend: str) -> None:
-    random.seed(seed)
-    if backend != "text2fx":
-        return
-    try:
-        import numpy
-
-        numpy.random.seed(seed)
-    except ImportError:
-        pass
-    try:
-        import torch
-
-        torch.manual_seed(seed)
-    except ImportError:
-        pass
-
-
 def _records(
     manifest: dict,
     manifest_path: Path,
@@ -190,18 +175,19 @@ def _records(
         if not audio_path.is_absolute():
             audio_path = (manifest_dir / audio_path).resolve()
         request_id = "benchmark-%04d-%s-%s-r%d" % (sequence, audio["id"], prompt["id"], repetition)
+        order = DISTORTION_THEN_EQ if config.get("effect_order") == "distortion-eq" else EQ_THEN_DISTORTION
+        options = {key: item for key, item in config.items() if key != "effect_order"}
         request = {
-            "protocol_version": "1",
+            "protocol_version": "2",
             "type": "analyze",
             "request_id": request_id,
             "prompt": prompt["text"],
             "audio": {"path": str(audio_path)},
-            "effects": ["eq"],
-            "options": dict(config),
+            "chain": default_chain(order),
+            "options": options,
         }
         random_seed = _case_seed(manifest.get("seed", 0), audio["id"], prompt["id"], config)
         request["options"]["random_seed"] = random_seed
-        _seed_runtime(random_seed, config["backend"])
         started = time.perf_counter()
         result, diagnostics = analyze(request, config["backend"])
         wall_elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -214,9 +200,10 @@ def _records(
             "prompt": {"id": prompt["id"], "text": prompt["text"]},
             "repetition": repetition,
             "random_seed": random_seed,
-            "config": request["options"],
+            "config": {**config, "random_seed": random_seed},
             "status": result["status"],
             "backend": result["backend"],
+            "chain_order": result.get("chain_order", []),
             "elapsed_ms": result["elapsed_ms"],
             "wall_elapsed_ms": round(wall_elapsed_ms, 3),
             "parameters": result.get("parameters", []),
@@ -241,6 +228,7 @@ def _csv_row(record: dict) -> Dict[str, Any]:
         "repetition": record["repetition"],
         "random_seed": record["random_seed"],
         "backend": record["backend"],
+        "chain_order_json": json.dumps(record["chain_order"], separators=(",", ":")),
         "status": record["status"],
         "elapsed_ms": record["elapsed_ms"],
         "wall_elapsed_ms": record["wall_elapsed_ms"],
@@ -287,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--jsonl", type=Path, required=True, help="Output path for detailed JSONL records.")
     parser.add_argument("--csv", type=Path, required=True, help="Output path for the flat CSV summary.")
-    parser.add_argument("--backend", choices=("mock", "text2fx"), default=None, help="Run only matching matrix rows.")
+    parser.add_argument("--backend", choices=("mock", "clap"), default=None, help="Run only matching matrix rows.")
     parser.add_argument("--repetitions", type=int, default=None, help="Override manifest repetitions.")
     parser.add_argument("--limit", type=int, default=None, help="Run at most this many expanded cases.")
     return parser

@@ -2,27 +2,7 @@ import hashlib
 import random
 from typing import Dict, List, Tuple
 
-
-_DEFAULTS = {
-    "low_shelf_gain_db": 0.0,
-    "low_shelf_cutoff_freq": 180.0,
-    "low_shelf_q_factor": 0.71,
-    "band0_gain_db": 0.0,
-    "band0_cutoff_freq": 600.0,
-    "band0_q_factor": 1.0,
-    "band1_gain_db": 0.0,
-    "band1_cutoff_freq": 3000.0,
-    "band1_q_factor": 1.0,
-    "band2_gain_db": 0.0,
-    "band2_cutoff_freq": 9000.0,
-    "band2_q_factor": 1.0,
-    "band3_gain_db": 0.0,
-    "band3_cutoff_freq": 15000.0,
-    "band3_q_factor": 1.0,
-    "high_shelf_gain_db": 0.0,
-    "high_shelf_cutoff_freq": 8000.0,
-    "high_shelf_q_factor": 0.71,
-}
+from ..chain_schema import DISTORTION_INSTANCE_ID, EQ_INSTANCE_ID, parameter_entries
 
 _PROFILES = {
     "warm": {"low_shelf_gain_db": 4.0, "band0_gain_db": 1.5, "high_shelf_gain_db": -1.5},
@@ -38,22 +18,16 @@ _PROFILES = {
 }
 
 
-def _unit(name: str) -> str:
-    if name.endswith("_gain_db"):
-        return "dB"
-    if name.endswith("_freq"):
-        return "Hz"
-    if name.endswith("_q_factor"):
-        return "ratio"
-    return "unitless"
-
-
 class MockAdapter:
     name = "mock"
 
     def analyze(self, request: dict) -> Tuple[List[dict], Dict[str, object], List[str], str]:
         prompt = request["prompt"].lower()
-        values = dict(_DEFAULTS)
+        chain_values = {
+            item["instance_id"]: dict(item["parameters"])
+            for item in request["chain"]
+        }
+        values = chain_values[EQ_INSTANCE_ID]
         matched = []
         for word, changes in _PROFILES.items():
             if word in prompt:
@@ -73,10 +47,14 @@ class MockAdapter:
             for name in ("low_shelf_gain_db", "band0_gain_db", "band1_gain_db", "high_shelf_gain_db"):
                 values[name] = round(rng.uniform(-1.5, 1.5), 2)
 
-        parameters = [
-            {"effect": "eq", "name": name, "value": float(value), "unit": _unit(name)}
-            for name, value in values.items()
-        ]
+        distortion = chain_values[DISTORTION_INSTANCE_ID]
+        if "warm" in prompt:
+            distortion.update({"drive_db": 8.0, "character": 0.35, "tone_db": -2.0, "mix": 0.35})
+        if any(word in prompt for word in ("gritty", "aggressive", "distorted", "crunchy")):
+            distortion.update({"drive_db": 28.0, "character": 0.8, "tone_db": 2.0, "mix": 0.75})
+        if "clean" in prompt:
+            distortion["mix"] = 0.0
+        parameters = parameter_entries(chain_values)
         diagnostics = "mock profile words: %s" % (", ".join(matched) if matched else "none")
         return (
             parameters,
@@ -84,4 +62,3 @@ class MockAdapter:
             ["Mock parameters are for integration testing and are not ML inference."],
             diagnostics,
         )
-

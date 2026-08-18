@@ -17,12 +17,12 @@ if [ ! -x "$python" ]; then
 fi
 
 set -- \
-  --backend text2fx \
+  --backend clap \
   --audio "$audio" \
   --prompt "$prompt" \
   --iterations "$iterations" \
   --random-seed 0 \
-  --parameter-initialization zeros
+  --parameter-initialization current
 if [ -n "$progress" ]; then
   set -- "$@" --progress-file "$progress"
 fi

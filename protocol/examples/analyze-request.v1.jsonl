@@ -1,1 +1,0 @@
-{"protocol_version":"1","type":"analyze","request_id":"demo-001","prompt":"warm, but keep the vocal clear","audio":{"path":"/tmp/semantifx-capture.wav"},"effects":["eq"],"options":{"backend":"mock","iterations":100,"parameter_initialization":"zeros"}}

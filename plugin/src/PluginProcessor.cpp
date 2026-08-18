@@ -176,7 +176,7 @@ private:
                 remainingText = durationText (remaining);
                 lastEtaUpdateMs = now;
             }
-            nextStatus = "Optimizing EQ  |  " + juce::String { next.step } + " / "
+            nextStatus = "Optimizing chain  |  " + juce::String { next.step } + " / "
                        + juce::String { next.totalSteps } + "  |  " + durationText (elapsed) + " elapsed";
             if (! remainingText.isEmpty() && next.step < next.totalSteps)
                 nextStatus += "  |  ~" + remainingText + " left";
@@ -304,7 +304,7 @@ private:
 
         auto request = juce::var { new juce::DynamicObject {} };
         auto* object = request.getDynamicObject();
-        object->setProperty ("protocol_version", "1");
+        object->setProperty ("protocol_version", "2");
         object->setProperty ("type", "analyze");
         object->setProperty ("request_id", localRequestId);
         object->setProperty ("prompt", localPrompt);
@@ -312,18 +312,49 @@ private:
         auto audio = juce::var { new juce::DynamicObject {} };
         audio.getDynamicObject()->setProperty ("path", captureFile.getFullPathName());
         object->setProperty ("audio", audio);
-        juce::Array<juce::var> effects;
-        effects.add ("eq");
-        object->setProperty ("effects", effects);
+        const auto chainItem = [this] (const char* instanceId, const char* effectType,
+                                       size_t firstParameter, size_t parameterCount)
+        {
+            auto item = juce::var { new juce::DynamicObject {} };
+            auto* itemObject = item.getDynamicObject();
+            itemObject->setProperty ("instance_id", instanceId);
+            itemObject->setProperty ("effect_type", effectType);
+            auto parameterValues = juce::var { new juce::DynamicObject {} };
+            auto* valuesObject = parameterValues.getDynamicObject();
+            for (size_t index = firstParameter; index < firstParameter + parameterCount; ++index)
+            {
+                const auto& spec = protocol::chainParameterSpecs[index];
+                valuesObject->setProperty (spec.name,
+                    owner.parameters.getRawParameterValue (spec.pluginParameterId)->load());
+            }
+            itemObject->setProperty ("parameters", parameterValues);
+            return item;
+        };
+        const auto eq = chainItem ("eq-1", "eq", 0, protocol::eqParameterNames.size());
+        const auto distortion = chainItem (
+            "distortion-1", "distortion", protocol::eqParameterNames.size(),
+            protocol::distortionParameterNames.size());
+        juce::Array<juce::var> chain;
+        if (owner.parameters.getRawParameterValue (parameter::effectOrder)->load() >= 0.5f)
+        {
+            chain.add (distortion);
+            chain.add (eq);
+        }
+        else
+        {
+            chain.add (eq);
+            chain.add (distortion);
+        }
+        object->setProperty ("chain", chain);
 
         auto options = juce::var { new juce::DynamicObject {} };
         auto* optionObject = options.getDynamicObject();
-        optionObject->setProperty ("backend", "text2fx");
+        optionObject->setProperty ("backend", "clap");
         optionObject->setProperty ("iterations", localIterations);
         optionObject->setProperty ("model", "ms_clap");
         optionObject->setProperty ("criterion", "cosine-sim");
         optionObject->setProperty ("learning_rate", 0.01);
-        optionObject->setProperty ("parameter_initialization", "zeros");
+        optionObject->setProperty ("parameter_initialization", "current");
         optionObject->setProperty ("parameter_regularization", 0.0);
         optionObject->setProperty ("random_seed", 0);
         object->setProperty ("options", options);
@@ -416,7 +447,7 @@ private:
         }
         {
             const juce::ScopedLock lock (dataLock);
-            status = "Waiting for persistent Text2FX worker...";
+            status = "Waiting for persistent CLAP worker...";
         }
 
         bool stopPublished = false;
@@ -667,6 +698,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout PluginProcessor::createParam
     addBand (parameter::bands[3], "High Mid", 8000.0f, 12000.0f, 9000.0f);
     addBand (parameter::bands[4], "Air", 12000.0f, 21050.0f, 14000.0f);
     addBand (parameter::bands[5], "High Shelf", 4000.0f, 21050.0f, 12000.0f);
+    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionDrive, 1 }, "Distortion Drive",
+                                                   juce::NormalisableRange<float> { 0.0f, 48.0f, 0.1f }, 0.0f));
+    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionCharacter, 1 }, "Distortion Character",
+                                                   juce::NormalisableRange<float> { 0.0f, 1.0f, 0.001f }, 0.5f));
+    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionTone, 1 }, "Distortion Tone",
+                                                   juce::NormalisableRange<float> { -12.0f, 12.0f, 0.1f }, 0.0f));
+    layout.add (std::make_unique<FloatParameter> (ID { parameter::distortionMix, 1 }, "Distortion Mix",
+                                                   juce::NormalisableRange<float> { 0.0f, 1.0f, 0.001f }, 0.25f));
+    layout.add (std::make_unique<juce::AudioParameterChoice> (
+        ID { parameter::effectOrder, 1 }, "Effect Order",
+        juce::StringArray { "EQ then Distortion", "Distortion then EQ" }, 0));
     layout.add (std::make_unique<FloatParameter> (ID { parameter::outputGain, 1 }, "Output Gain",
                                                    juce::NormalisableRange<float> { -24.0f, 12.0f, 0.1f }, 0.0f));
     layout.add (std::make_unique<FloatParameter> (ID { parameter::mix, 1 }, "Mix",
@@ -691,6 +733,8 @@ void PluginProcessor::prepareToPlay (double sampleRate, int)
     for (auto& bank : filters)
         for (auto& filter : bank)
             filter.reset();
+    for (auto& filter : distortionToneFilters)
+        filter.reset();
     resetSmoothers();
     captureBuffer.prepare (currentSampleRate, std::max (1, std::min (getTotalNumInputChannels(), 2)), 10.0);
 }
@@ -707,6 +751,14 @@ void PluginProcessor::resetSmoothers()
         smoother.frequency.setCurrentAndTargetValue (value (parameters, parameter::bands[index].frequency));
         smoother.q.setCurrentAndTargetValue (value (parameters, parameter::bands[index].q));
     }
+    distortionDriveSmooth.reset (currentSampleRate, parameterRampSeconds);
+    distortionCharacterSmooth.reset (currentSampleRate, parameterRampSeconds);
+    distortionToneSmooth.reset (currentSampleRate, parameterRampSeconds);
+    distortionMixSmooth.reset (currentSampleRate, parameterRampSeconds);
+    distortionDriveSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionDrive));
+    distortionCharacterSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionCharacter));
+    distortionToneSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionTone));
+    distortionMixSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionMix));
     outputGainSmooth.reset (currentSampleRate, bypassRampSeconds);
     wetMixSmooth.reset (currentSampleRate, bypassRampSeconds);
     outputGainSmooth.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (value (parameters, parameter::outputGain)));
@@ -723,6 +775,10 @@ void PluginProcessor::updateTargets() noexcept
         smoother.frequency.setTargetValue (value (parameters, parameter::bands[index].frequency));
         smoother.q.setTargetValue (value (parameters, parameter::bands[index].q));
     }
+    distortionDriveSmooth.setTargetValue (value (parameters, parameter::distortionDrive));
+    distortionCharacterSmooth.setTargetValue (value (parameters, parameter::distortionCharacter));
+    distortionToneSmooth.setTargetValue (value (parameters, parameter::distortionTone));
+    distortionMixSmooth.setTargetValue (value (parameters, parameter::distortionMix));
     outputGainSmooth.setTargetValue (juce::Decibels::decibelsToGain (value (parameters, parameter::outputGain)));
     const auto bypassed = value (parameters, parameter::bypass) >= 0.5f;
     wetMixSmooth.setTargetValue (bypassed ? 0.0f : value (parameters, parameter::mix) * 0.01f);
@@ -736,6 +792,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
     const auto channels = std::min (buffer.getNumChannels(), 2);
     const auto samples = buffer.getNumSamples();
+    const auto distortionFirst = value (parameters, parameter::effectOrder) >= 0.5f;
     for (int start = 0; start < samples; start += coefficientUpdateInterval)
     {
         const auto count = std::min (coefficientUpdateInterval, samples - start);
@@ -751,21 +808,46 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
                                                  : eq::peak (currentSampleRate, frequency, q, gain);
         }
 
+        const auto distortionTone = distortionToneSmooth.skip (count);
         for (int channel = 0; channel < channels; ++channel)
+        {
             for (size_t index = 0; index < filters.size(); ++index)
                 filters[index][static_cast<size_t> (channel)].setCoefficients (nextCoefficients[index]);
+            distortionToneFilters[static_cast<size_t> (channel)].setCoefficients (
+                eq::highShelf (currentSampleRate, distortion::toneFrequencyHz, distortion::toneQ,
+                               distortionTone));
+        }
 
         for (int sample = start; sample < start + count; ++sample)
         {
             const auto outputGain = outputGainSmooth.getNextValue();
             const auto wetMix = wetMixSmooth.getNextValue();
+            const auto distortionDrive = distortionDriveSmooth.getNextValue();
+            const auto distortionCharacter = distortionCharacterSmooth.getNextValue();
+            const auto distortionMix = static_cast<float> (distortionMixSmooth.getNextValue());
             for (int channel = 0; channel < channels; ++channel)
             {
                 auto* data = buffer.getWritePointer (channel);
                 const auto dry = data[sample];
                 auto wet = dry;
-                for (auto& bank : filters)
-                    wet = bank[static_cast<size_t> (channel)].process (wet);
+                if (distortionFirst)
+                {
+                    const auto distorted = static_cast<float> (
+                        distortion::shape (wet, distortionDrive, distortionCharacter));
+                    const auto toned = distortionToneFilters[static_cast<size_t> (channel)].process (distorted);
+                    wet = distortion::blend (wet, toned, distortionMix);
+                    for (auto& bank : filters)
+                        wet = bank[static_cast<size_t> (channel)].process (wet);
+                }
+                else
+                {
+                    for (auto& bank : filters)
+                        wet = bank[static_cast<size_t> (channel)].process (wet);
+                    const auto distorted = static_cast<float> (
+                        distortion::shape (wet, distortionDrive, distortionCharacter));
+                    const auto toned = distortionToneFilters[static_cast<size_t> (channel)].process (distorted);
+                    wet = distortion::blend (wet, toned, distortionMix);
+                }
                 wet *= outputGain;
                 data[sample] = dry + wetMix * (wet - dry);
             }
@@ -805,11 +887,11 @@ juce::Result PluginProcessor::applyAnalysisResult (const protocol::AnalysisResul
     if (messageManager == nullptr || ! messageManager->isThisTheMessageThread())
         return juce::Result::fail ("Analysis results must be applied on the message thread.");
 
-    std::array<juce::RangedAudioParameter*, protocol::canonicalParameterNames.size()> targets {};
-    std::array<float, protocol::canonicalParameterNames.size()> clampedValues {};
-    for (size_t index = 0; index < protocol::canonicalParameterNames.size(); ++index)
+    std::array<juce::RangedAudioParameter*, protocol::chainParameterSpecs.size()> targets {};
+    std::array<float, protocol::chainParameterSpecs.size()> clampedValues {};
+    for (size_t index = 0; index < protocol::chainParameterSpecs.size(); ++index)
     {
-        targets[index] = parameters.getParameter (protocol::canonicalParameterNames[index]);
+        targets[index] = parameters.getParameter (protocol::chainParameterSpecs[index].pluginParameterId);
         if (targets[index] == nullptr)
             return juce::Result::fail ("Plugin parameter mapping is incomplete.");
 
@@ -818,7 +900,15 @@ juce::Result PluginProcessor::applyAnalysisResult (const protocol::AnalysisResul
                                                                    range.start, range.end));
     }
 
-    for (size_t index = 0; index < targets.size(); ++index)
+    auto* order = parameters.getParameter (parameter::effectOrder);
+    if (order == nullptr)
+        return juce::Result::fail ("Effect-order parameter mapping is incomplete.");
+    const auto orderValue = result.effectOrder == protocol::EffectOrder::distortionThenEq ? 1.0f : 0.0f;
+    order->beginChangeGesture();
+    order->setValueNotifyingHost (order->convertTo0to1 (orderValue));
+    order->endChangeGesture();
+
+    for (size_t index = 0; index < protocol::chainParameterSpecs.size(); ++index)
     {
         targets[index]->beginChangeGesture();
         targets[index]->setValueNotifyingHost (targets[index]->convertTo0to1 (clampedValues[index]));

@@ -42,7 +42,7 @@ def run_stream(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the SemantiFX JSONL inference worker.")
-    parser.add_argument("--default-backend", choices=("mock", "text2fx"), default="mock")
+    parser.add_argument("--default-backend", choices=("mock", "clap"), default="mock")
     parser.add_argument("--diagnostics", action="store_true", help="Copy captured backend diagnostics to stderr.")
     return parser
 
@@ -56,4 +56,3 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

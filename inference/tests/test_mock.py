@@ -1,26 +1,45 @@
 import unittest
 
+from semantifx_inference.chain_schema import default_chain
 from semantifx_inference.service import analyze
 
 
 def request(prompt="warm", path="/tmp/input.wav"):
     return {
-        "protocol_version": "1",
+        "protocol_version": "2",
         "type": "analyze",
         "request_id": "mock-1",
         "prompt": prompt,
         "audio": {"path": path},
-        "effects": ["eq"],
+        "chain": default_chain(),
         "options": {"backend": "mock"},
     }
 
 
 class MockAdapterTests(unittest.TestCase):
+    def test_produces_complete_eq_distortion_chain(self):
+        result, _ = analyze(request("warm and gritty"))
+        self.assertEqual(result["protocol_version"], "2")
+        self.assertEqual(len(result["parameters"]), 22)
+        distortion = {
+            item["name"]: item["value"]
+            for item in result["parameters"]
+            if item["effect_instance_id"] == "distortion-1"
+        }
+        self.assertGreater(distortion["drive_db"], 0.0)
+        self.assertGreater(distortion["mix"], 0.25)
+
+    def test_echoes_reversed_effect_order(self):
+        value = request("warm")
+        value["chain"].reverse()
+        result, _ = analyze(value)
+        self.assertEqual(result["chain_order"], ["distortion-1", "eq-1"])
+
     def test_produces_full_named_eq_shape(self):
         result, diagnostics = analyze(request("warm and clear"))
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["backend"], "mock")
-        self.assertEqual(len(result["parameters"]), 18)
+        self.assertEqual(len(result["parameters"]), 22)
         names = {item["name"] for item in result["parameters"]}
         self.assertIn("low_shelf_gain_db", names)
         self.assertIn("high_shelf_q_factor", names)
@@ -44,4 +63,3 @@ class MockAdapterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

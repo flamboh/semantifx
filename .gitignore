@@ -13,7 +13,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 
-# Prototype runtime files
+# Local runtime files
 *.log
 *.wav
-

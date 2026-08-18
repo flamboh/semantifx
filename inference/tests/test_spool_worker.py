@@ -5,17 +5,18 @@ import threading
 import time
 import unittest
 
+from semantifx_inference.chain_schema import default_chain
 from semantifx_inference.spool_worker import _write_json, process_request, run_spool
 
 
 def request(request_id):
     return {
-        "protocol_version": "1",
+        "protocol_version": "2",
         "type": "analyze",
         "request_id": request_id,
         "prompt": "warm",
         "audio": {"path": "/tmp/input.wav"},
-        "effects": ["eq"],
+        "chain": default_chain(),
         "options": {"iterations": 600},
     }
 

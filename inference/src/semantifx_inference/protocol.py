@@ -1,14 +1,15 @@
 import math
 from typing import Any, Dict, Mapping, Optional, Sequence
 
+from .chain_schema import CHAIN_ORDERS, chain_order, instance_schema
 from .errors import SemantiFXError
 
 
-PROTOCOL_VERSION = "1"
-
+PROTOCOL_VERSION = "2"
 _REQUEST_FIELDS = {
-    "protocol_version", "type", "request_id", "prompt", "audio", "effects", "options"
+    "protocol_version", "type", "request_id", "prompt", "audio", "chain", "options"
 }
+_CHAIN_FIELDS = {"instance_id", "effect_type", "parameters"}
 _AUDIO_FIELDS = {"path"}
 _OPTION_FIELDS = {
     "backend",
@@ -21,10 +22,6 @@ _OPTION_FIELDS = {
     "roll_samples",
     "random_seed",
 }
-_BACKENDS = {"mock", "text2fx"}
-_MODELS = {"ms_clap", "laion_clap"}
-_CRITERIA = {"cosine-sim", "directional_loss", "standard"}
-_INITIALIZATIONS = {"zeros", "random", "super_random"}
 
 
 def _fail(message: str, field: Optional[str] = None) -> None:
@@ -32,7 +29,7 @@ def _fail(message: str, field: Optional[str] = None) -> None:
     raise SemantiFXError(
         "invalid_request",
         message,
-        ["Send a request matching protocol/schemas/v1/request.schema.json."],
+        ["Send a request matching the protocol-v2 schema."],
         details,
     )
 
@@ -47,71 +44,40 @@ def _check_unknown_fields(value: Mapping[str, Any], allowed: Sequence[str], loca
         _fail("Unknown field(s) at %s: %s" % (location, ", ".join(unknown)), location)
 
 
-def validate_request(value: Any) -> Dict[str, Any]:
-    """Validate and return a v1 request without mutating it.
-
-    The worker deliberately uses a small handwritten validator so its mock path
-    stays dependency-free. The JSON Schema remains the language-neutral source
-    of truth.
-    """
-    if not isinstance(value, dict):
-        _fail("Request must be a JSON object.")
-    _check_unknown_fields(value, _REQUEST_FIELDS, "request")
-    for field in ("protocol_version", "type", "request_id", "prompt", "audio", "effects"):
-        if field not in value:
-            _fail("Missing required field: %s" % field, field)
-    if value["protocol_version"] != PROTOCOL_VERSION:
-        raise SemantiFXError(
-            "unsupported_protocol_version",
-            "Protocol version %r is not supported." % value["protocol_version"],
-            ["Use protocol_version \"%s\"." % PROTOCOL_VERSION],
-            {"supported_versions": [PROTOCOL_VERSION]},
-        )
-    if value["type"] != "analyze":
-        _fail("type must be 'analyze'.", "type")
-    for field, maximum in (("request_id", 200), ("prompt", 4000)):
-        item = value[field]
-        if not isinstance(item, str) or not item.strip() or len(item) > maximum:
-            _fail("%s must be a non-empty string of at most %d characters." % (field, maximum), field)
-
-    audio = value["audio"]
-    if not isinstance(audio, dict):
-        _fail("audio must be an object.", "audio")
-    _check_unknown_fields(audio, _AUDIO_FIELDS, "audio")
-    if not isinstance(audio.get("path"), str) or not audio["path"].strip():
-        _fail("audio.path must be a non-empty string.", "audio.path")
-    effects = value["effects"]
-    if not isinstance(effects, list) or len(effects) != 1:
-        _fail("effects must contain exactly one effect in protocol v1.", "effects")
-    if any(effect != "eq" for effect in effects):
-        _fail("Protocol v1 supports only the 'eq' effect.", "effects")
-
-    options = value.get("options", {})
+def _validate_options(options: Any) -> None:
     if not isinstance(options, dict):
         _fail("options must be an object.", "options")
     _check_unknown_fields(options, _OPTION_FIELDS, "options")
     enums = {
-        "backend": _BACKENDS,
-        "model": _MODELS,
-        "criterion": _CRITERIA,
-        "parameter_initialization": _INITIALIZATIONS,
+        "backend": {"mock", "clap"},
+        "model": {"ms_clap", "laion_clap"},
+        "criterion": {"cosine-sim", "directional_loss", "standard"},
+        "parameter_initialization": {"current", "random"},
     }
     for field, allowed in enums.items():
         if field in options and options[field] not in allowed:
-            _fail("options.%s must be one of: %s." % (field, ", ".join(sorted(allowed))), "options.%s" % field)
+            _fail(
+                "options.%s must be one of: %s." % (field, ", ".join(sorted(allowed))),
+                "options.%s" % field,
+            )
     if "iterations" in options and (
         not isinstance(options["iterations"], int)
         or isinstance(options["iterations"], bool)
         or not 1 <= options["iterations"] <= 10000
     ):
         _fail("options.iterations must be an integer from 1 to 10000.", "options.iterations")
-    if "learning_rate" in options and (not _is_number(options["learning_rate"]) or options["learning_rate"] <= 0):
+    if "learning_rate" in options and (
+        not _is_number(options["learning_rate"]) or options["learning_rate"] <= 0
+    ):
         _fail("options.learning_rate must be a finite number greater than zero.", "options.learning_rate")
     if "parameter_regularization" in options and (
         not _is_number(options["parameter_regularization"])
         or options["parameter_regularization"] < 0
     ):
-        _fail("options.parameter_regularization must be a finite number greater than or equal to zero.", "options.parameter_regularization")
+        _fail(
+            "options.parameter_regularization must be a finite number greater than or equal to zero.",
+            "options.parameter_regularization",
+        )
     if "roll_samples" in options and (
         not isinstance(options["roll_samples"], int)
         or isinstance(options["roll_samples"], bool)
@@ -124,6 +90,71 @@ def validate_request(value: Any) -> Dict[str, Any]:
         or not 0 <= options["random_seed"] <= 4294967295
     ):
         _fail("options.random_seed must be an integer from 0 to 4294967295.", "options.random_seed")
+
+
+def validate_request(value: Any) -> Dict[str, Any]:
+    """Validate and return the fixed-chain request without mutating it."""
+    if not isinstance(value, dict):
+        _fail("Request must be a JSON object.")
+    if value.get("protocol_version") != PROTOCOL_VERSION:
+        raise SemantiFXError(
+            "unsupported_protocol_version",
+            "Protocol version %r is not supported." % value.get("protocol_version"),
+            ["Use protocol version %s." % PROTOCOL_VERSION],
+            {"supported_versions": [PROTOCOL_VERSION]},
+        )
+    _check_unknown_fields(value, _REQUEST_FIELDS, "request")
+    for field in ("type", "request_id", "prompt", "audio", "chain"):
+        if field not in value:
+            _fail("Missing required field: %s" % field, field)
+    if value["type"] != "analyze":
+        _fail("type must be 'analyze'.", "type")
+    for field, maximum in (("request_id", 200), ("prompt", 4000)):
+        item = value[field]
+        if not isinstance(item, str) or not item.strip() or len(item) > maximum:
+            _fail(
+                "%s must be a non-empty string of at most %d characters." % (field, maximum),
+                field,
+            )
+
+    audio = value["audio"]
+    if not isinstance(audio, dict):
+        _fail("audio must be an object.", "audio")
+    _check_unknown_fields(audio, _AUDIO_FIELDS, "audio")
+    if not isinstance(audio.get("path"), str) or not audio["path"].strip():
+        _fail("audio.path must be a non-empty string.", "audio.path")
+
+    chain = value["chain"]
+    if not isinstance(chain, list) or len(chain) != 2:
+        _fail("Protocol v2 requires exactly one EQ and one distortion.", "chain")
+    for index, item in enumerate(chain):
+        location = "chain[%d]" % index
+        if not isinstance(item, dict):
+            _fail("%s must be an object." % location, location)
+        _check_unknown_fields(item, _CHAIN_FIELDS, location)
+        instance_id = item.get("instance_id")
+        try:
+            expected_type, specs = instance_schema(instance_id)
+        except (KeyError, TypeError):
+            _fail("%s.instance_id is not a supported effect instance." % location, location + ".instance_id")
+        if item.get("effect_type") != expected_type:
+            _fail("%s.effect_type must be %r." % (location, expected_type), location + ".effect_type")
+        parameters = item.get("parameters")
+        if not isinstance(parameters, dict):
+            _fail("%s.parameters must be an object." % location, location + ".parameters")
+        if set(parameters) != {spec.name for spec in specs}:
+            _fail("%s.parameters must contain the complete fixed schema." % location, location + ".parameters")
+        for spec in specs:
+            parameter = parameters[spec.name]
+            if not _is_number(parameter) or not spec.minimum <= parameter <= spec.maximum:
+                _fail(
+                    "%s.parameters.%s must be between %s and %s."
+                    % (location, spec.name, spec.minimum, spec.maximum),
+                    "%s.parameters.%s" % (location, spec.name),
+                )
+    if chain_order(chain) not in CHAIN_ORDERS:
+        _fail("chain must contain eq-1 and distortion-1 exactly once.", "chain")
+    _validate_options(value.get("options", {}))
     return value
 
 
@@ -131,6 +162,7 @@ def ok_result(
     request_id: str,
     backend: str,
     elapsed_ms: float,
+    effect_order: Sequence[str],
     parameters: list,
     metrics: Optional[dict] = None,
     warnings: Optional[list] = None,
@@ -142,6 +174,7 @@ def ok_result(
         "status": "ok",
         "backend": backend,
         "elapsed_ms": round(elapsed_ms, 3),
+        "chain_order": list(effect_order),
         "parameters": parameters,
         "metrics": metrics or {},
         "warnings": warnings or [],

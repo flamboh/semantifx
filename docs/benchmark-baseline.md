@@ -33,15 +33,16 @@ PYTHONPATH=src python -m semantifx_inference.benchmark \
   --csv /tmp/semantifx-starter.csv
 ```
 
-Then exercise cold/warm Text2FX caching with the sibling environment:
+Then exercise cold/warm CLAP caching with the sibling environment. This current
+manifest benchmarks the EQ + distortion chain, so its parameter results
+will not match the older EQ-only measurements above:
 
 ```sh
 PYTHONPATH=src ../../oss/text2fx/.venv/bin/python -m semantifx_inference.benchmark \
-  --manifest benchmarks/text2fx-cache-smoke.json \
-  --jsonl /tmp/semantifx-text2fx-cache.jsonl \
-  --csv /tmp/semantifx-text2fx-cache.csv
+  --manifest benchmarks/clap-cache-smoke.json \
+  --jsonl /tmp/semantifx-clap-cache.jsonl \
+  --csv /tmp/semantifx-clap-cache.csv
 ```
 
 The harness records configuration, stable seed, timing, status, metrics,
 warnings, errors, and parameter values in JSONL and CSV. It never embeds audio.
-

@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semantifx.local/protocol/v2/result.schema.json",
+  "title": "SemantiFX analysis result v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "type", "request_id", "status", "backend", "elapsed_ms"],
+  "properties": {
+    "protocol_version": { "const": "2" },
+    "type": { "const": "analysis_result" },
+    "request_id": { "type": ["string", "null"] },
+    "status": { "enum": ["ok", "error"] },
+    "backend": { "type": ["string", "null"] },
+    "elapsed_ms": { "type": "number", "minimum": 0 },
+    "chain_order": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "oneOf": [
+        {
+          "prefixItems": [{ "const": "eq-1" }, { "const": "distortion-1" }],
+          "items": false
+        },
+        {
+          "prefixItems": [{ "const": "distortion-1" }, { "const": "eq-1" }],
+          "items": false
+        }
+      ]
+    },
+    "parameters": {
+      "type": "array",
+      "minItems": 22,
+      "maxItems": 22,
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/eqDbParameter" }, { "properties": { "name": { "const": "low_shelf_gain_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqHzParameter" }, { "properties": { "name": { "const": "low_shelf_cutoff_freq" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqRatioParameter" }, { "properties": { "name": { "const": "low_shelf_q_factor" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqDbParameter" }, { "properties": { "name": { "const": "band0_gain_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqHzParameter" }, { "properties": { "name": { "const": "band0_cutoff_freq" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqRatioParameter" }, { "properties": { "name": { "const": "band0_q_factor" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqDbParameter" }, { "properties": { "name": { "const": "band1_gain_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqHzParameter" }, { "properties": { "name": { "const": "band1_cutoff_freq" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqRatioParameter" }, { "properties": { "name": { "const": "band1_q_factor" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqDbParameter" }, { "properties": { "name": { "const": "band2_gain_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqHzParameter" }, { "properties": { "name": { "const": "band2_cutoff_freq" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqRatioParameter" }, { "properties": { "name": { "const": "band2_q_factor" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqDbParameter" }, { "properties": { "name": { "const": "band3_gain_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqHzParameter" }, { "properties": { "name": { "const": "band3_cutoff_freq" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqRatioParameter" }, { "properties": { "name": { "const": "band3_q_factor" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqDbParameter" }, { "properties": { "name": { "const": "high_shelf_gain_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqHzParameter" }, { "properties": { "name": { "const": "high_shelf_cutoff_freq" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/eqRatioParameter" }, { "properties": { "name": { "const": "high_shelf_q_factor" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/distortionDbParameter" }, { "properties": { "name": { "const": "drive_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/distortionRatioParameter" }, { "properties": { "name": { "const": "character" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/distortionDbParameter" }, { "properties": { "name": { "const": "tone_db" } } }] },
+        { "allOf": [{ "$ref": "#/$defs/distortionRatioParameter" }, { "properties": { "name": { "const": "mix" } } }] }
+      ],
+      "items": false
+    },
+    "metrics": { "type": "object" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "remediation"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "remediation": { "type": "array", "items": { "type": "string" } },
+        "details": { "type": "object" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "ok" } } },
+      "then": { "required": ["chain_order", "parameters", "metrics", "warnings"] },
+      "else": { "required": ["error"] }
+    }
+  ],
+  "$defs": {
+    "eqDbParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_instance_id", "effect", "name", "value", "unit"],
+      "properties": {
+        "effect_instance_id": { "const": "eq-1" },
+        "effect": { "const": "eq" },
+        "name": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "const": "dB" }
+      }
+    },
+    "eqHzParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_instance_id", "effect", "name", "value", "unit"],
+      "properties": {
+        "effect_instance_id": { "const": "eq-1" },
+        "effect": { "const": "eq" },
+        "name": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "const": "Hz" }
+      }
+    },
+    "eqRatioParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_instance_id", "effect", "name", "value", "unit"],
+      "properties": {
+        "effect_instance_id": { "const": "eq-1" },
+        "effect": { "const": "eq" },
+        "name": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "const": "ratio" }
+      }
+    },
+    "distortionDbParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_instance_id", "effect", "name", "value", "unit"],
+      "properties": {
+        "effect_instance_id": { "const": "distortion-1" },
+        "effect": { "const": "distortion" },
+        "name": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "const": "dB" }
+      }
+    },
+    "distortionRatioParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_instance_id", "effect", "name", "value", "unit"],
+      "properties": {
+        "effect_instance_id": { "const": "distortion-1" },
+        "effect": { "const": "distortion" },
+        "name": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "const": "ratio" }
+      }
+    }
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semantifx.local/protocol/v2/request.schema.json",
+  "title": "SemantiFX analysis request v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "type", "request_id", "prompt", "audio", "chain"],
+  "properties": {
+    "protocol_version": { "const": "2" },
+    "type": { "const": "analyze" },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": { "path": { "type": "string", "minLength": 1 } }
+    },
+    "chain": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "oneOf": [
+        {
+          "prefixItems": [
+            { "$ref": "#/$defs/eqChainItem" },
+            { "$ref": "#/$defs/distortionChainItem" }
+          ],
+          "items": false
+        },
+        {
+          "prefixItems": [
+            { "$ref": "#/$defs/distortionChainItem" },
+            { "$ref": "#/$defs/eqChainItem" }
+          ],
+          "items": false
+        }
+      ]
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": { "enum": ["mock", "clap"] },
+        "model": { "enum": ["ms_clap", "laion_clap"] },
+        "criterion": { "enum": ["cosine-sim", "directional_loss", "standard"] },
+        "iterations": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "learning_rate": { "type": "number", "exclusiveMinimum": 0 },
+        "parameter_initialization": { "enum": ["current", "random"] },
+        "parameter_regularization": { "type": "number", "minimum": 0 },
+        "roll_samples": { "type": "integer", "minimum": 0 },
+        "random_seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      }
+    }
+  },
+  "$defs": {
+    "eqChainItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instance_id", "effect_type", "parameters"],
+      "properties": {
+        "instance_id": { "const": "eq-1" },
+        "effect_type": { "const": "eq" },
+        "parameters": { "$ref": "#/$defs/eqParameters" }
+      }
+    },
+    "distortionChainItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instance_id", "effect_type", "parameters"],
+      "properties": {
+        "instance_id": { "const": "distortion-1" },
+        "effect_type": { "const": "distortion" },
+        "parameters": { "$ref": "#/$defs/distortionParameters" }
+      }
+    },
+    "eqParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "low_shelf_gain_db", "low_shelf_cutoff_freq", "low_shelf_q_factor",
+        "band0_gain_db", "band0_cutoff_freq", "band0_q_factor",
+        "band1_gain_db", "band1_cutoff_freq", "band1_q_factor",
+        "band2_gain_db", "band2_cutoff_freq", "band2_q_factor",
+        "band3_gain_db", "band3_cutoff_freq", "band3_q_factor",
+        "high_shelf_gain_db", "high_shelf_cutoff_freq", "high_shelf_q_factor"
+      ],
+      "properties": {
+        "low_shelf_gain_db": { "type": "number", "minimum": -20, "maximum": 20 },
+        "low_shelf_cutoff_freq": { "type": "number", "minimum": 20, "maximum": 2000 },
+        "low_shelf_q_factor": { "type": "number", "minimum": 0.1, "maximum": 6 },
+        "band0_gain_db": { "type": "number", "minimum": -20, "maximum": 20 },
+        "band0_cutoff_freq": { "type": "number", "minimum": 80, "maximum": 2000 },
+        "band0_q_factor": { "type": "number", "minimum": 0.1, "maximum": 6 },
+        "band1_gain_db": { "type": "number", "minimum": -20, "maximum": 20 },
+        "band1_cutoff_freq": { "type": "number", "minimum": 2000, "maximum": 8000 },
+        "band1_q_factor": { "type": "number", "minimum": 0.1, "maximum": 6 },
+        "band2_gain_db": { "type": "number", "minimum": -20, "maximum": 20 },
+        "band2_cutoff_freq": { "type": "number", "minimum": 8000, "maximum": 12000 },
+        "band2_q_factor": { "type": "number", "minimum": 0.1, "maximum": 6 },
+        "band3_gain_db": { "type": "number", "minimum": -20, "maximum": 20 },
+        "band3_cutoff_freq": { "type": "number", "minimum": 12000, "maximum": 21050 },
+        "band3_q_factor": { "type": "number", "minimum": 0.1, "maximum": 6 },
+        "high_shelf_gain_db": { "type": "number", "minimum": -20, "maximum": 20 },
+        "high_shelf_cutoff_freq": { "type": "number", "minimum": 4000, "maximum": 21050 },
+        "high_shelf_q_factor": { "type": "number", "minimum": 0.1, "maximum": 6 }
+      }
+    },
+    "distortionParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["drive_db", "character", "tone_db", "mix"],
+      "properties": {
+        "drive_db": { "type": "number", "minimum": 0, "maximum": 48 },
+        "character": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tone_db": { "type": "number", "minimum": -12, "maximum": 12 },
+        "mix": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

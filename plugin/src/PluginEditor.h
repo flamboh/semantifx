@@ -34,6 +34,7 @@ private:
     };
 
     void selectBand (int);
+    void selectDistortion();
     void beginCapture();
     void beginAnalysis();
     void cancelWork (bool acceptLatestPreview = true);
@@ -45,14 +46,19 @@ private:
     std::unique_ptr<SemanticLookAndFeel> semanticLookAndFeel;
     std::unique_ptr<EqResponseGraph> responseGraph;
     std::array<std::unique_ptr<ParameterControl>, 18> bandControls;
+    std::array<std::unique_ptr<ParameterControl>, 4> distortionControls;
     std::unique_ptr<ParameterControl> mixControl;
     std::unique_ptr<ParameterControl> outputControl;
     std::array<juce::TextButton, 6> bandButtons;
+    juce::TextButton distortionButton { "DISTORTION" };
     int selectedBand {};
+    bool distortionSelected {};
 
     juce::Label productLabel;
     juce::Label subtitleLabel;
     juce::Label engineBadge;
+    juce::ComboBox orderSelector;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> orderAttachment;
     juce::ToggleButton bypassButton { "Hear original" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
     juce::TextButton importButton { "Import..." };

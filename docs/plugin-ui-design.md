@@ -1,13 +1,14 @@
-# Semantifx plugin interface redesign
+# Initial fixed-effect plugin interface
 
 ## Product intent
 
-Semantifx is an editable semantic EQ, not a chat window attached to a rack of
-knobs. The interface should make a short loop obvious:
+This document describes the implemented EQ + distortion slice, not the final
+product boundary. SemantiFX is an editable, prompt-driven effect-chain
+optimizer. The interface should make a short loop obvious:
 
 1. listen to a representative passage;
 2. describe a desired direction;
-3. inspect and edit the resulting EQ curve;
+3. inspect and edit the resulting EQ and distortion settings;
 4. compare it with the unprocessed signal.
 
 The model supplies a starting point. The musician retains direct access to
@@ -43,8 +44,9 @@ every parameter the model changed.
 
 ### 1. Header: identity and listening comparison
 
-- Left: `SEMANTIFX` wordmark, subtitle `Semantic equalizer`, and a small
+- Left: `SEMANTIFX` wordmark, subtitle `Prompt-driven effects`, and a small
   `LOCAL · MS-CLAP` engine badge.
+- Center: an attached selector for `EQ → DISTORTION` or `DISTORTION → EQ`.
 - Right: `Import…`, a prominent `Hear original` toggle attached to the real
   bypass parameter, and no unrelated status text.
 - The bypass control must communicate both visually and through its accessible
@@ -82,12 +84,14 @@ every parameter the model changed.
 - The canvas is not a fake spectrum analyzer. A live analyzer should only be
   added later with an explicit real-time-safe data seam.
 
-### 4. Selected-band inspector
+### 4. Effect inspector
 
-- A six-item band rail names the fixed topology: `LOW`, `LOW MID`, `MID`,
-  `HIGH MID`, `AIR`, `HIGH`.
+- A seven-item rail names the fixed topology: `LOW`, `LOW MID`, `MID`,
+  `HIGH MID`, `AIR`, `HIGH`, and `DISTORTION`.
 - Selecting a rail item or graph node reveals exactly three large attached
   controls: `GAIN`, `FREQUENCY`, and `Q`.
+- Selecting `DISTORTION` hides the EQ nodes and reveals `DRIVE`, `CHARACTER`,
+  `TONE`, and the distortion's parallel `MIX`.
 - Use the existing rotary drag interaction, direct numeric text entry, units,
   tooltips, and accessible names. Hide the other fifteen band controls rather
   than rendering an undifferentiated 18-knob wall.
@@ -132,7 +136,8 @@ every parameter the model changed.
 ## Acceptance checks
 
 1. Project builds and all existing checks pass.
-2. Every existing parameter remains editable and automatable.
+2. Every EQ and distortion parameter, including effect order, remains editable
+   and automatable.
 3. Entering a prompt, capturing audio, and analyzing visibly updates the curve
    and attached parameter controls.
 4. Clicking/dragging a band node updates the corresponding host parameter.

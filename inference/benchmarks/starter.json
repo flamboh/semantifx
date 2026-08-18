@@ -1,6 +1,6 @@
 {
   "manifest_version": "1",
-  "name": "starter-mock-eq",
+  "name": "starter-mock-chain",
   "repetitions": 1,
   "seed": 1729,
   "audio": [
@@ -14,6 +14,6 @@
   "matrix": {
     "backend": ["mock"],
     "iterations": [1, 10],
-    "parameter_initialization": ["zeros"]
+    "parameter_initialization": ["current"]
   }
 }
