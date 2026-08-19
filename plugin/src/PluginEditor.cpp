@@ -7,19 +7,19 @@
 
 namespace semantifx
 {
+// Catppuccin Mocha (https://catppuccin.com/palette): Base background, Mantle
+// footer, Surface0/1 chrome, Mauve as the single accent shared by selection,
+// the response curve, and the primary action.
 namespace palette
 {
-const auto background = juce::Colour { 0xff0b1116 };
-const auto panel = juce::Colour { 0xff121b22 };
-const auto border = juce::Colour { 0xff26343d };
-const auto text = juce::Colour { 0xffeaf1f1 };
-const auto muted = juce::Colour { 0xff8da1aa };
-const auto primary = juce::Colour { 0xffb7ef78 };
-const auto danger = juce::Colour { 0xffff7b72 };
-const std::array<juce::Colour, 6> bands {
-    juce::Colour { 0xff4dd6b8 }, juce::Colour { 0xff58cfe8 }, juce::Colour { 0xff6f91f2 },
-    juce::Colour { 0xffaa7fea }, juce::Colour { 0xffff817a }, juce::Colour { 0xffffbd66 }
-};
+const auto background = juce::Colour { 0xff1e1e2e }; // base
+const auto mantle = juce::Colour { 0xff181825 };
+const auto surface = juce::Colour { 0xff313244 };    // surface0
+const auto line = juce::Colour { 0xff45475a };       // surface1
+const auto text = juce::Colour { 0xffcdd6f4 };
+const auto muted = juce::Colour { 0xff7f849c };      // overlay1
+const auto accent = juce::Colour { 0xffcba6f7 };     // mauve
+const auto danger = juce::Colour { 0xfff38ba8 };     // red
 } // namespace palette
 
 class SemanticLookAndFeel final : public juce::LookAndFeel_V4
@@ -30,16 +30,16 @@ public:
         setColour (juce::TextButton::textColourOffId, palette::text);
         setColour (juce::TextButton::textColourOnId, palette::background);
         setColour (juce::TextEditor::backgroundColourId, palette::background);
-        setColour (juce::TextEditor::outlineColourId, palette::border);
-        setColour (juce::TextEditor::focusedOutlineColourId, palette::primary);
+        setColour (juce::TextEditor::outlineColourId, palette::line);
+        setColour (juce::TextEditor::focusedOutlineColourId, palette::accent);
         setColour (juce::TextEditor::textColourId, palette::text);
-        setColour (juce::TextEditor::highlightColourId, palette::primary.withAlpha (0.35f));
+        setColour (juce::TextEditor::highlightColourId, palette::accent.withAlpha (0.35f));
         setColour (juce::Slider::textBoxTextColourId, palette::text);
-        setColour (juce::Slider::textBoxBackgroundColourId, palette::background);
-        setColour (juce::Slider::textBoxOutlineColourId, palette::border);
-        setColour (juce::TooltipWindow::backgroundColourId, palette::panel);
+        setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
+        setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        setColour (juce::TooltipWindow::backgroundColourId, palette::surface);
         setColour (juce::TooltipWindow::textColourId, palette::text);
-        setColour (juce::TooltipWindow::outlineColourId, palette::border);
+        setColour (juce::TooltipWindow::outlineColourId, palette::line);
     }
 
     void drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour& colour,
@@ -49,37 +49,237 @@ public:
         if (highlighted) fill = fill.brighter (0.12f);
         if (down) fill = fill.darker (0.14f);
         g.setColour (fill);
-        g.fillRoundedRectangle (button.getLocalBounds().toFloat(), 7.0f);
+        g.fillRect (button.getLocalBounds());
         if (button.hasKeyboardFocus (true))
         {
-            g.setColour (palette::primary);
-            g.drawRoundedRectangle (button.getLocalBounds().toFloat().reduced (1.0f), 7.0f, 2.0f);
+            g.setColour (palette::accent);
+            g.drawRect (button.getLocalBounds().reduced (1), 2);
         }
+    }
+
+    void fillTextEditorBackground (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        g.setColour (editor.findColour (juce::TextEditor::backgroundColourId));
+        g.fillRect (0, 0, width, height);
+    }
+
+    void drawTextEditorOutline (juce::Graphics& g, int width, int height, juce::TextEditor& editor) override
+    {
+        const auto focused = editor.hasKeyboardFocus (true) && ! editor.isReadOnly();
+        g.setColour (editor.findColour (focused ? juce::TextEditor::focusedOutlineColourId
+                                                : juce::TextEditor::outlineColourId));
+        g.drawRect (0, 0, width, height, focused ? 2 : 1);
     }
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height, float position,
                            float startAngle, float endAngle, juce::Slider& slider) override
     {
         const auto bounds = juce::Rectangle<float> (static_cast<float> (x), static_cast<float> (y),
-                                                     static_cast<float> (width), static_cast<float> (height)).reduced (7.0f);
+                                                     static_cast<float> (width), static_cast<float> (height)).reduced (6.0f);
         const auto radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
         const auto centre = bounds.getCentre();
         const auto angle = startAngle + position * (endAngle - startAngle);
         juce::Path arc;
         arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, startAngle, endAngle, true);
-        g.setColour (palette::border);
-        g.strokePath (arc, juce::PathStrokeType { 5.0f, juce::PathStrokeType::curved,
+        g.setColour (palette::line);
+        g.strokePath (arc, juce::PathStrokeType { 3.5f, juce::PathStrokeType::curved,
                                                   juce::PathStrokeType::rounded });
         juce::Path valueArc;
         valueArc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, startAngle, angle, true);
         g.setColour (slider.findColour (juce::Slider::rotarySliderFillColourId));
-        g.strokePath (valueArc, juce::PathStrokeType { 5.0f, juce::PathStrokeType::curved,
+        g.strokePath (valueArc, juce::PathStrokeType { 3.5f, juce::PathStrokeType::curved,
                                                        juce::PathStrokeType::rounded });
         const auto pointer = juce::Point<float> { centre.x + std::sin (angle) * radius,
                                                   centre.y - std::cos (angle) * radius };
         g.setColour (palette::text);
-        g.fillEllipse (juce::Rectangle<float> { 7.0f, 7.0f }.withCentre (pointer));
+        g.fillEllipse (juce::Rectangle<float> { 6.0f, 6.0f }.withCentre (pointer));
     }
+};
+
+/** The effect chain as draggable modules on a signal-flow line. Drag a module
+    across its neighbour to reorder the chain; select one to edit it. */
+class ChainRack final : public juce::Component
+{
+public:
+    static constexpr int eqModule = 0;
+    static constexpr int distortionModule = 1;
+
+    ChainRack (PluginProcessor& processor, std::function<void (int)> onSelectModule)
+        : owner (processor), onSelect (std::move (onSelectModule))
+    {
+        chips[eqModule] = std::make_unique<Chip> (*this, eqModule, "EQ");
+        chips[distortionModule] = std::make_unique<Chip> (*this, distortionModule, "DISTORTION");
+        for (auto& chip : chips)
+            addAndMakeVisible (*chip);
+        setTitle ("Effect chain");
+        setDescription ("Signal flows left to right; drag a module to reorder, select one to edit it");
+    }
+
+    static constexpr int chipWidth = 100;
+    static constexpr int chipGap = 26;
+    static constexpr int idealWidth = 2 * chipWidth + chipGap;
+
+    void setSelected (int module)
+    {
+        selected = module;
+        for (auto& chip : chips)
+            chip->repaint();
+    }
+
+    void refresh()
+    {
+        if (! chips[0]->isDragging() && ! chips[1]->isDragging())
+            layout();
+    }
+
+    void resized() override { layout(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto y = static_cast<float> (getHeight()) * 0.5f;
+        const auto right = static_cast<float> (getWidth());
+        g.setColour (palette::line);
+        g.drawLine (0.0f, y, right, y, 1.2f);
+        juce::Path arrow;
+        arrow.addTriangle (right - 6.0f, y - 4.0f, right - 6.0f, y + 4.0f, right, y);
+        g.fillPath (arrow);
+    }
+
+private:
+    class Chip final : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        Chip (ChainRack& rack, int moduleIndex, juce::String text)
+            : owner (rack), module (moduleIndex), label (std::move (text))
+        {
+            setWantsKeyboardFocus (true);
+            setTitle (label + " module");
+            setDescription ("Select to edit; drag or use the arrow keys to reorder the chain");
+            setTooltip (label + ": click to edit, drag to reorder");
+            setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        }
+
+        bool isDragging() const noexcept { return dragging; }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto isSelected = owner.selected == module;
+            auto fill = palette::surface;
+            if (dragging) fill = fill.brighter (0.25f);
+            else if (hovered) fill = fill.brighter (0.12f);
+            g.setColour (fill);
+            g.fillRect (getLocalBounds());
+            g.setColour (isSelected ? palette::accent : palette::line);
+            g.drawRect (getLocalBounds(), isSelected ? 2 : 1);
+            if (hasKeyboardFocus (true))
+            {
+                g.setColour (palette::accent);
+                g.drawRect (getLocalBounds().reduced (3), 1);
+            }
+            g.setColour (isSelected ? palette::accent : palette::text);
+            g.setFont (juce::FontOptions { 12.5f, juce::Font::bold });
+            g.drawText (label, getLocalBounds(), juce::Justification::centred);
+        }
+
+        void mouseEnter (const juce::MouseEvent&) override { hovered = true; repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { hovered = false; repaint(); }
+
+        void mouseDown (const juce::MouseEvent&) override
+        {
+            dragStartX = getX();
+            dragging = false;
+        }
+
+        void mouseDrag (const juce::MouseEvent& event) override
+        {
+            const auto dx = event.getDistanceFromDragStartX();
+            if (! dragging && std::abs (dx) < 5)
+                return;
+            if (! dragging)
+            {
+                dragging = true;
+                toFront (false);
+            }
+            const auto x = juce::jlimit (0, owner.getWidth() - getWidth(), dragStartX + dx);
+            setTopLeftPosition (x, getY());
+            const auto shouldBeFirst = getBounds().getCentreX() < owner.getWidth() / 2;
+            const auto isFirst = owner.firstModule() == module;
+            if (shouldBeFirst != isFirst)
+            {
+                owner.toggleOrder();
+                owner.layout();
+            }
+            repaint();
+        }
+
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            const auto wasDragging = dragging;
+            dragging = false;
+            owner.layout();
+            repaint();
+            if (! wasDragging)
+                owner.onSelect (module);
+        }
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (key == juce::KeyPress::returnKey || key == juce::KeyPress::spaceKey)
+            {
+                owner.onSelect (module);
+                return true;
+            }
+            const auto isFirst = owner.firstModule() == module;
+            if ((key == juce::KeyPress::leftKey && ! isFirst) || (key == juce::KeyPress::rightKey && isFirst))
+            {
+                owner.toggleOrder();
+                owner.layout();
+                return true;
+            }
+            return false;
+        }
+
+    private:
+        ChainRack& owner;
+        int module;
+        juce::String label;
+        int dragStartX {};
+        bool dragging {};
+        bool hovered {};
+    };
+
+    int firstModule() const
+    {
+        return owner.parameters.getRawParameterValue (parameter::effectOrder)->load() >= 0.5f
+                 ? distortionModule : eqModule;
+    }
+
+    void toggleOrder()
+    {
+        auto* order = owner.parameters.getParameter (parameter::effectOrder);
+        const auto next = firstModule() == eqModule ? 1.0f : 0.0f;
+        order->beginChangeGesture();
+        order->setValueNotifyingHost (order->convertTo0to1 (next));
+        order->endChangeGesture();
+    }
+
+    void layout()
+    {
+        const auto first = firstModule();
+        auto x = 0;
+        for (const auto module : { first, 1 - first })
+        {
+            auto& chip = *chips[static_cast<size_t> (module)];
+            if (! chip.isDragging())
+                chip.setBounds (x, 0, chipWidth, getHeight());
+            x += chipWidth + chipGap;
+        }
+    }
+
+    PluginProcessor& owner;
+    std::function<void (int)> onSelect;
+    std::array<std::unique_ptr<Chip>, 2> chips;
+    int selected { eqModule };
 };
 
 class EqResponseGraph final : public juce::Component
@@ -98,16 +298,19 @@ public:
 
         void paint (juce::Graphics& g) override
         {
-            auto circle = getLocalBounds().toFloat().reduced (owner.selectedBand == index ? 4.0f : 6.0f);
-            if (owner.selectedBand == index || hasKeyboardFocus (true))
+            const auto isSelected = owner.selectedBand == index;
+            auto circle = getLocalBounds().toFloat().reduced (isSelected ? 4.0f : 6.0f);
+            if (hasKeyboardFocus (true))
             {
-                g.setColour (palette::text);
-                g.drawEllipse (circle.expanded (3.0f), 2.0f);
+                g.setColour (palette::accent);
+                g.drawEllipse (circle.expanded (3.0f), 1.5f);
             }
-            g.setColour (palette::bands[static_cast<size_t> (index)]);
+            g.setColour (isSelected ? palette::accent : palette::surface);
             g.fillEllipse (circle);
-            g.setColour (palette::background);
-            g.setFont (juce::FontOptions { 13.0f, juce::Font::bold });
+            g.setColour (isSelected ? palette::accent : palette::muted);
+            g.drawEllipse (circle, 1.4f);
+            g.setColour (isSelected ? palette::background : palette::text);
+            g.setFont (juce::FontOptions { 12.5f, juce::Font::bold });
             g.drawText (juce::String { index + 1 }, getLocalBounds(), juce::Justification::centred);
         }
 
@@ -172,33 +375,26 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.setColour (palette::panel);
-        g.fillRoundedRectangle (getLocalBounds().toFloat(), 10.0f);
-        g.setColour (palette::border);
-        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 10.0f, 1.0f);
-
         const auto plot = plotBounds();
         constexpr std::array<double, 10> frequencies { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000 };
         g.setFont (juce::FontOptions { 10.5f });
-        for (size_t frequencyIndex = 0; frequencyIndex < frequencies.size(); ++frequencyIndex)
+        for (const auto frequency : frequencies)
         {
-            const auto frequency = frequencies[frequencyIndex];
             const auto x = static_cast<float> (plot.getX() + eq::graph::frequencyToUnit (frequency) * plot.getWidth());
-            g.setColour (palette::border.withAlpha (frequencyIndex == 0 || frequencyIndex == frequencies.size() - 1
-                                                        ? 0.9f : 0.58f));
+            g.setColour (palette::line.withAlpha (0.55f));
             g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
-            g.setColour (palette::muted);
+            g.setColour (palette::muted.withAlpha (0.8f));
             const auto label = frequency >= 1000.0 ? juce::String { frequency / 1000.0, frequency < 10000 ? 1 : 0 } + "k"
                                                    : juce::String { static_cast<int> (frequency) };
             g.drawText (label, juce::roundToInt (x) - 18, juce::roundToInt (plot.getBottom()) + 5, 36, 15,
                         juce::Justification::centred);
         }
-        for (int db = -24; db <= 24; db += 6)
+        for (int db = -24; db <= 24; db += 12)
         {
             const auto y = static_cast<float> (plot.getY() + eq::graph::gainToUnit (db) * plot.getHeight());
-            g.setColour (db == 0 ? palette::muted.withAlpha (0.7f) : palette::border.withAlpha (0.58f));
+            g.setColour (db == 0 ? palette::muted.withAlpha (0.6f) : palette::line.withAlpha (0.55f));
             g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
-            g.setColour (palette::muted);
+            g.setColour (palette::muted.withAlpha (0.8f));
             g.drawText ((db > 0 ? "+" : "") + juce::String { db }, 4, juce::roundToInt (y) - 8, 34, 16,
                         juce::Justification::centredRight);
         }
@@ -236,23 +432,18 @@ public:
         const auto currentBands = readBands();
         if (analysisPreview.has_value())
         {
-            drawResponse (currentBands, palette::muted.withAlpha (0.52f), 1.5f, 0.0f);
-            drawResponse (*analysisPreview, palette::primary, 2.5f, 0.08f);
+            drawResponse (currentBands, palette::muted.withAlpha (0.45f), 1.5f, 0.0f);
+            drawResponse (*analysisPreview, palette::accent, 2.5f, 0.09f);
+            g.setColour (palette::accent);
+            g.setFont (juce::FontOptions { 11.0f, juce::Font::bold });
+            g.drawText ("Optimizing  " + juce::String { previewStep } + " / " + juce::String { previewTotalSteps },
+                        juce::roundToInt (plot.getX()) + 9, juce::roundToInt (plot.getY()) + 7, 320, 18,
+                        juce::Justification::centredLeft);
         }
         else
         {
-            drawResponse (currentBands, palette::primary, 2.5f, 0.08f);
+            drawResponse (currentBands, palette::accent, 2.5f, 0.09f);
         }
-
-        g.setColour (palette::muted);
-        g.setFont (juce::FontOptions { 11.0f, juce::Font::bold });
-        const auto graphLabel = analysisPreview.has_value()
-            ? "OPTIMIZATION PREVIEW  |  " + juce::String { previewStep } + " / "
-                + juce::String { previewTotalSteps }
-            : "COMBINED RESPONSE";
-        g.drawText (graphLabel, juce::roundToInt (plot.getX()) + 9,
-                    juce::roundToInt (plot.getY()) + 7, 320, 18,
-                    juce::Justification::centredLeft);
     }
 
 private:
@@ -283,7 +474,7 @@ private:
         {
             const auto x = plot.getX() + static_cast<float> (eq::graph::frequencyToUnit (bands[index].frequency)) * plot.getWidth();
             const auto y = plot.getY() + static_cast<float> (eq::graph::gainToUnit (bands[index].gainDb)) * plot.getHeight();
-            nodes[index]->setBounds (juce::roundToInt (x) - 17, juce::roundToInt (y) - 17, 34, 34);
+            nodes[index]->setBounds (juce::roundToInt (x) - 16, juce::roundToInt (y) - 16, 32, 32);
             nodes[index]->setTitle ("Band " + juce::String { index + 1 } + ", "
                                      + juce::String { bands[index].frequency, 0 } + " hertz, "
                                      + juce::String { bands[index].gainDb, 1 } + " decibels");
@@ -364,18 +555,18 @@ PluginEditor::ParameterControl::ParameterControl (PluginEditor& editor,
                                                   const juce::String& suffix)
 {
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 94, 24);
+    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 90, 20);
     slider.setTextValueSuffix (suffix);
     slider.setName (displayName);
     slider.setTitle (displayName);
     slider.setDescription ("Automatable " + displayName + " control; double-click the value to type");
     slider.setTooltip (displayName + ": drag or type an exact value");
-    slider.setColour (juce::Slider::rotarySliderFillColourId, palette::primary);
+    slider.setColour (juce::Slider::rotarySliderFillColourId, palette::accent);
     slider.setWantsKeyboardFocus (true);
     label.setText (displayName.toUpperCase(), juce::dontSendNotification);
     label.setJustificationType (juce::Justification::centred);
     label.setColour (juce::Label::textColourId, palette::muted);
-    label.setFont (juce::FontOptions { 11.0f, juce::Font::bold });
+    label.setFont (juce::FontOptions { 10.5f, juce::Font::bold });
     label.setInterceptsMouseClicks (false, false);
     editor.addChildComponent (slider);
     editor.addChildComponent (label);
@@ -389,49 +580,22 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     setLookAndFeel (semanticLookAndFeel.get());
     setWantsKeyboardFocus (true);
 
-    productLabel.setText ("SEMANTIFX", juce::dontSendNotification);
-    productLabel.setFont (juce::FontOptions { 25.0f, juce::Font::bold });
-    productLabel.setColour (juce::Label::textColourId, palette::text);
-    addAndMakeVisible (productLabel);
-    subtitleLabel.setText ("Prompt-driven effects", juce::dontSendNotification);
-    subtitleLabel.setColour (juce::Label::textColourId, palette::muted);
-    addAndMakeVisible (subtitleLabel);
-    engineBadge.setText ("LOCAL  |  MS-CLAP", juce::dontSendNotification);
-    engineBadge.setJustificationType (juce::Justification::centred);
-    engineBadge.setColour (juce::Label::backgroundColourId, palette::panel);
-    engineBadge.setColour (juce::Label::outlineColourId, palette::border);
-    engineBadge.setColour (juce::Label::textColourId, palette::primary);
-    engineBadge.setFont (juce::FontOptions { 11.0f, juce::Font::bold });
-    addAndMakeVisible (engineBadge);
-
-    orderSelector.addItem ("EQ  →  DISTORTION", 1);
-    orderSelector.addItem ("DISTORTION  →  EQ", 2);
-    orderSelector.setTitle ("Effect order");
-    orderSelector.setTooltip ("Choose whether EQ or distortion processes the signal first");
-    orderSelector.setColour (juce::ComboBox::backgroundColourId, palette::panel);
-    orderSelector.setColour (juce::ComboBox::outlineColourId, palette::border);
-    orderSelector.setColour (juce::ComboBox::textColourId, palette::text);
-    addAndMakeVisible (orderSelector);
-    orderAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-        pluginProcessor.parameters, parameter::effectOrder, orderSelector);
-
-    bypassButton.setTitle ("Hear original signal");
-    bypassButton.setDescription ("Bypass all effect processing while preserving its settings");
-    bypassButton.setTooltip ("Compare the unprocessed original with the shaped sound");
-    bypassButton.setColour (juce::ToggleButton::tickColourId, palette::primary);
-    addAndMakeVisible (bypassButton);
-    bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        pluginProcessor.parameters, parameter::bypass, bypassButton);
+    chainRack = std::make_unique<ChainRack> (pluginProcessor, [this] (int module)
+    {
+        showModule (module == ChainRack::distortionModule ? Module::distortion : Module::eq);
+    });
+    addAndMakeVisible (*chainRack);
 
     importButton.setTitle ("Import analysis result");
-    importButton.setDescription ("Import a Semantifx protocol version 2 JSON result");
-    importButton.setTooltip ("Import an existing Semantifx analysis result");
-    importButton.setColour (juce::TextButton::buttonColourId, palette::border);
+    importButton.setDescription ("Import a SemantiFX analysis result JSON file");
+    importButton.setTooltip ("Import an existing SemantiFX analysis result");
+    importButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    importButton.setColour (juce::TextButton::textColourOffId, palette::muted);
     importButton.onClick = [safeThis = juce::Component::SafePointer<PluginEditor> { this }]
     {
         if (safeThis == nullptr) return;
         safeThis->fileChooser = std::make_unique<juce::FileChooser> (
-            "Import Semantifx analysis result", juce::File {}, "*.json");
+            "Import SemantiFX analysis result", juce::File {}, "*.json");
         safeThis->importButton.setEnabled (false);
         safeThis->fileChooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -439,15 +603,11 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
             {
                 if (safeThis == nullptr) return;
                 const auto file = chooser.getResult();
-                if (file == juce::File {})
-                    safeThis->importStatus.setText ("Import cancelled", juce::dontSendNotification);
-                else
+                if (file != juce::File {})
                 {
                     const auto result = safeThis->pluginProcessor.applyAnalysisResultJson (file.loadFileAsString());
-                    safeThis->importStatus.setText (result.wasOk() ? "Imported" : result.getErrorMessage(),
-                                                    juce::dontSendNotification);
-                    safeThis->importStatus.setColour (juce::Label::textColourId,
-                                                      result.wasOk() ? palette::primary : palette::danger);
+                    safeThis->showTransientStatus (result.wasOk() ? "Imported" : result.getErrorMessage(),
+                                                   ! result.wasOk());
                     if (result.wasOk()) safeThis->responseGraph->refresh();
                 }
                 safeThis->importButton.setEnabled (true);
@@ -458,14 +618,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
             });
     };
     addAndMakeVisible (importButton);
-    importStatus.setColour (juce::Label::textColourId, palette::muted);
-    importStatus.setJustificationType (juce::Justification::centredRight);
-    addAndMakeVisible (importStatus);
 
-    workflowEyebrow.setText ("READY", juce::dontSendNotification);
-    workflowEyebrow.setColour (juce::Label::textColourId, palette::primary);
-    workflowEyebrow.setFont (juce::FontOptions { 11.0f, juce::Font::bold });
-    addAndMakeVisible (workflowEyebrow);
     promptEditor.setTextToShowWhenEmpty ("Describe a direction - \"brighter, but keep the body\"", palette::muted);
     promptEditor.setTitle ("Describe the sound direction");
     promptEditor.setDescription ("Natural-language target for local effect-chain optimization");
@@ -477,25 +630,22 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     captureButton.setTitle ("Listen for ten seconds");
     captureButton.setDescription ("Capture ten seconds from the plugin input for analysis");
     captureButton.setTooltip ("Start a ten-second capture while audio is playing");
-    captureButton.setColour (juce::TextButton::buttonColourId, palette::border);
+    captureButton.setColour (juce::TextButton::buttonColourId, palette::surface);
     captureButton.onClick = [this] { beginCapture(); };
     addAndMakeVisible (captureButton);
     analyzeButton.setTitle ("Shape sound from description");
-    analyzeButton.setDescription ("Run the local 600-iteration CLAP optimization on the captured audio");
+    analyzeButton.setDescription ("Run the local CLAP optimization on the captured audio");
     analyzeButton.setTooltip ("Analyze the capture using the typed direction");
-    analyzeButton.setColour (juce::TextButton::buttonColourId, palette::primary);
+    analyzeButton.setColour (juce::TextButton::buttonColourId, palette::accent);
     analyzeButton.setColour (juce::TextButton::textColourOffId, palette::background);
     analyzeButton.onClick = [this] { beginAnalysis(); };
     addAndMakeVisible (analyzeButton);
     cancelButton.setTitle ("Cancel capture or analysis");
     cancelButton.setTooltip ("Stop the active listening or analysis task");
-    cancelButton.setColour (juce::TextButton::buttonColourId, palette::danger.darker (0.3f));
+    cancelButton.setColour (juce::TextButton::buttonColourId, palette::danger.darker (0.35f));
     cancelButton.onClick = [this] { cancelWork(); };
     addAndMakeVisible (cancelButton);
-    captureProgress.setPercentageDisplay (false);
-    captureProgress.setTitle ("Listening progress");
-    addAndMakeVisible (captureProgress);
-    workflowStatus.setText ("Play audio, then start listening", juce::dontSendNotification);
+    workflowStatus.setText ("Play audio, then press Listen", juce::dontSendNotification);
     workflowStatus.setTitle ("Analysis status");
     workflowStatus.setColour (juce::Label::textColourId, palette::muted);
     addAndMakeVisible (workflowStatus);
@@ -514,14 +664,6 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
                                                                            names[band] + " frequency", " Hz");
         bandControls[controlIndex++] = std::make_unique<ParameterControl> (*this, pluginProcessor.parameters, ids.q,
                                                                            names[band] + " Q", "");
-        auto& button = bandButtons[band];
-        button.setButtonText (juce::String { static_cast<int> (band + 1) } + "  " + names[band].toUpperCase());
-        button.setTitle ("Select " + names[band] + " band");
-        button.setTooltip ("Show controls for the " + names[band] + " band");
-        button.setClickingTogglesState (false);
-        button.setColour (juce::TextButton::buttonColourId, palette::panel);
-        button.onClick = [this, band] { selectBand (static_cast<int> (band)); };
-        addAndMakeVisible (button);
     }
     distortionControls[0] = std::make_unique<ParameterControl> (
         *this, pluginProcessor.parameters, parameter::distortionDrive, "Drive", " dB");
@@ -530,12 +672,7 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     distortionControls[2] = std::make_unique<ParameterControl> (
         *this, pluginProcessor.parameters, parameter::distortionTone, "Tone", " dB");
     distortionControls[3] = std::make_unique<ParameterControl> (
-        *this, pluginProcessor.parameters, parameter::distortionMix, "Distortion mix", "");
-    distortionButton.setTitle ("Select distortion effect");
-    distortionButton.setTooltip ("Show drive, character, tone, and distortion mix controls");
-    distortionButton.setColour (juce::TextButton::buttonColourId, palette::panel);
-    distortionButton.onClick = [this] { selectDistortion(); };
-    addAndMakeVisible (distortionButton);
+        *this, pluginProcessor.parameters, parameter::distortionMix, "Mix", "");
     mixControl = std::make_unique<ParameterControl> (*this, pluginProcessor.parameters, parameter::mix, "Mix", " %");
     outputControl = std::make_unique<ParameterControl> (*this, pluginProcessor.parameters, parameter::outputGain,
                                                         "Output", " dB");
@@ -543,18 +680,11 @@ PluginEditor::PluginEditor (PluginProcessor& owner)
     mixControl->slider.setVisible (true);
     outputControl->label.setVisible (true);
     outputControl->slider.setVisible (true);
-    selectedBandLabel.setColour (juce::Label::textColourId, palette::text);
-    selectedBandLabel.setFont (juce::FontOptions { 14.0f, juce::Font::bold });
-    addAndMakeVisible (selectedBandLabel);
-    lastDirectionLabel.setText ("Last direction: -", juce::dontSendNotification);
-    lastDirectionLabel.setColour (juce::Label::textColourId, palette::muted);
-    lastDirectionLabel.setJustificationType (juce::Justification::centredRight);
-    addAndMakeVisible (lastDirectionLabel);
-    selectBand (0);
+    showModule (Module::eq);
 
     setResizable (true, true);
-    setResizeLimits (820, 620, 1600, 1100);
-    setSize (1100, 760);
+    setResizeLimits (780, 560, 1600, 1100);
+    setSize (980, 680);
     startTimerHz (15);
 }
 
@@ -567,78 +697,76 @@ PluginEditor::~PluginEditor()
 void PluginEditor::paint (juce::Graphics& g)
 {
     g.fillAll (palette::background);
-    g.setColour (palette::border);
-    g.drawHorizontalLine (78, 20.0f, static_cast<float> (getWidth() - 20));
-    auto command = juce::Rectangle<float> { 20.0f, 92.0f, static_cast<float> (getWidth() - 40), 116.0f };
-    g.setColour (palette::panel);
-    g.fillRoundedRectangle (command, 10.0f);
-    g.setColour (palette::border);
-    g.drawRoundedRectangle (command.reduced (0.5f), 10.0f, 1.0f);
-    auto inspector = juce::Rectangle<float> { 20.0f, static_cast<float> (getHeight() - 166),
-                                              static_cast<float> (getWidth() - 40), 146.0f };
-    g.setColour (palette::panel);
-    g.fillRoundedRectangle (inspector, 10.0f);
-    g.setColour (palette::border);
-    g.drawRoundedRectangle (inspector.reduced (0.5f), 10.0f, 1.0f);
+
+    // Wordmark: quiet text with the accent carrying "FX".
+    g.setFont (juce::FontOptions { 19.0f, juce::Font::bold });
+    const auto semantiWidth = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), "Semanti");
+    g.setColour (palette::text);
+    g.drawText ("Semanti", 24, 0, semantiWidth, 56, juce::Justification::centredLeft);
+    g.setColour (palette::accent);
+    g.drawText ("FX", 24 + semantiWidth, 0, 40, 56, juce::Justification::centredLeft);
+
+    g.setColour (palette::line);
+    g.drawHorizontalLine (56, 0.0f, static_cast<float> (getWidth()));
+    const auto footerTop = getHeight() - 118;
+    g.setColour (palette::mantle);
+    g.fillRect (0, footerTop, getWidth(), 118);
+    g.setColour (palette::line);
+    g.drawHorizontalLine (footerTop, 0.0f, static_cast<float> (getWidth()));
 }
 
 void PluginEditor::resized()
 {
-    auto header = juce::Rectangle<int> { 20, 12, getWidth() - 40, 58 };
-    productLabel.setBounds (header.removeFromLeft (175).removeFromTop (34));
-    subtitleLabel.setBounds (22, 43, 190, 22);
-    engineBadge.setBounds (214, 20, 128, 28);
-    orderSelector.setBounds (350, 22, std::clamp (getWidth() - 636, 174, 220), 34);
-    bypassButton.setBounds (getWidth() - 162, 22, 142, 34);
-    importButton.setBounds (getWidth() - 276, 22, 104, 34);
-    importStatus.setBounds (getWidth() - 470, 51, 290, 20);
+    // Header: wordmark (painted), centred chain rack, quiet utilities right.
+    chainRack->setBounds ((getWidth() - ChainRack::idealWidth) / 2, 11, ChainRack::idealWidth, 34);
+    importButton.setBounds (getWidth() - 90, 11, 66, 34);
 
-    auto command = juce::Rectangle<int> { 32, 101, getWidth() - 64, 99 };
-    workflowEyebrow.setBounds (command.removeFromTop (20).removeFromLeft (250));
-    auto controls = command.removeFromTop (40);
-    const auto buttonWidth = getWidth() < 950 ? 104 : 120;
-    captureButton.setBounds (controls.removeFromLeft (buttonWidth));
-    controls.removeFromLeft (8);
-    analyzeButton.setBounds (controls.removeFromRight (buttonWidth));
-    controls.removeFromRight (8);
-    cancelButton.setBounds (controls.removeFromRight (82));
-    controls.removeFromRight (8);
+    // Main area: the selected module fills it edge to edge.
+    auto main = juce::Rectangle<int> { 0, 57, getWidth(), getHeight() - 57 - 118 };
+    if (visibleModule == Module::eq)
+    {
+        auto knobStrip = main.removeFromBottom (96);
+        responseGraph->setBounds (main.reduced (8, 4));
+        auto knobs = knobStrip.withSizeKeepingCentre (3 * 108, knobStrip.getHeight());
+        for (int index = 0; index < 3; ++index)
+        {
+            auto cell = knobs.removeFromLeft (108).reduced (6, 2);
+            auto& control = *bandControls[static_cast<size_t> (selectedBand * 3 + index)];
+            control.label.setBounds (cell.removeFromTop (16));
+            control.slider.setBounds (cell);
+        }
+    }
+    else
+    {
+        auto knobs = main.withSizeKeepingCentre (4 * 148, std::min (200, main.getHeight() - 24));
+        for (auto& control : distortionControls)
+        {
+            auto cell = knobs.removeFromLeft (148).reduced (12, 4);
+            control->label.setBounds (cell.removeFromTop (18));
+            control->slider.setBounds (cell);
+        }
+    }
+
+    // Footer: capture, prompt, and primary action on one line; status under
+    // the prompt; mix and output on the right.
+    auto footer = juce::Rectangle<int> { 24, getHeight() - 106, getWidth() - 48, 94 };
+    auto knobArea = footer.removeFromRight (196);
+    footer.removeFromRight (16);
+    auto controls = footer.removeFromTop (40);
+    captureButton.setBounds (controls.removeFromLeft (104));
+    controls.removeFromLeft (10);
+    const auto actionArea = controls.removeFromRight (118);
+    analyzeButton.setBounds (actionArea);
+    cancelButton.setBounds (actionArea);
+    controls.removeFromRight (10);
     promptEditor.setBounds (controls);
-    auto status = command.removeFromTop (30);
-    captureProgress.setBounds (status.removeFromLeft (std::min (250, getWidth() / 4)).reduced (0, 8));
-    status.removeFromLeft (10);
-    workflowStatus.setBounds (status);
-
-    responseGraph->setBounds (20, 220, getWidth() - 40, getHeight() - 398);
-
-    auto inspector = juce::Rectangle<int> { 32, getHeight() - 158, getWidth() - 64, 130 };
-    auto rail = inspector.removeFromTop (31);
-    const auto bandWidth = std::min (118, std::max (76, (rail.getWidth() - 230) / 7));
-    for (auto& button : bandButtons)
-    {
-        button.setBounds (rail.removeFromLeft (bandWidth).reduced (2, 0));
-    }
-    distortionButton.setBounds (rail.removeFromLeft (bandWidth).reduced (2, 0));
-    lastDirectionLabel.setBounds (rail);
-    auto controlArea = inspector;
-    selectedBandLabel.setBounds (controlArea.removeFromLeft (130).removeFromTop (28));
-    const auto visibleControlCount = distortionSelected ? 4 : 3;
-    const auto knobWidth = std::min (125, std::max (82, (controlArea.getWidth() - 238) / visibleControlCount));
-    for (int index = 0; index < visibleControlCount; ++index)
-    {
-        auto cell = controlArea.removeFromLeft (knobWidth).reduced (5, 1);
-        auto& control = distortionSelected
-            ? *distortionControls[static_cast<size_t> (index)]
-            : *bandControls[static_cast<size_t> (selectedBand * 3 + index)];
-        control.label.setBounds (cell.removeFromTop (18));
-        control.slider.setBounds (cell);
-    }
-    auto outputArea = controlArea.removeFromRight (228);
-    auto mixCell = outputArea.removeFromLeft (114).reduced (5, 1);
-    mixControl->label.setBounds (mixCell.removeFromTop (18));
+    footer.removeFromTop (8);
+    workflowStatus.setBounds (footer.removeFromTop (20));
+    auto mixCell = knobArea.removeFromLeft (94).reduced (4, 0);
+    mixControl->label.setBounds (mixCell.removeFromTop (16));
     mixControl->slider.setBounds (mixCell);
-    auto outputCell = outputArea.reduced (5, 1);
-    outputControl->label.setBounds (outputCell.removeFromTop (18));
+    auto outputCell = knobArea.reduced (4, 0);
+    outputControl->label.setBounds (outputCell.removeFromTop (16));
     outputControl->slider.setBounds (outputCell);
 }
 
@@ -652,68 +780,45 @@ bool PluginEditor::keyPressed (const juce::KeyPress& key)
     return AudioProcessorEditor::keyPressed (key);
 }
 
+void PluginEditor::showModule (Module module)
+{
+    visibleModule = module;
+    chainRack->setSelected (module == Module::distortion ? ChainRack::distortionModule : ChainRack::eqModule);
+    const auto eqVisible = module == Module::eq;
+    responseGraph->setVisible (eqVisible);
+    responseGraph->setSelectedBand (eqVisible ? selectedBand : -1);
+    for (auto& control : distortionControls)
+    {
+        control->label.setVisible (! eqVisible);
+        control->slider.setVisible (! eqVisible);
+    }
+    selectBand (selectedBand);
+}
+
 void PluginEditor::selectBand (int index)
 {
-    distortionSelected = false;
     selectedBand = juce::jlimit (0, 5, index);
-    responseGraph->setSelectedBand (selectedBand);
-    static constexpr std::array<const char*, 6> names { "LOW SHELF", "LOW MID", "MID", "HIGH MID", "AIR", "HIGH SHELF" };
-    selectedBandLabel.setText (juce::String { selectedBand + 1 } + "  " + names[static_cast<size_t> (selectedBand)],
-                               juce::dontSendNotification);
-    for (size_t band = 0; band < bandButtons.size(); ++band)
+    const auto eqVisible = visibleModule == Module::eq;
+    if (eqVisible)
+        responseGraph->setSelectedBand (selectedBand);
+    for (size_t band = 0; band < parameter::bands.size(); ++band)
     {
-        const auto selected = static_cast<int> (band) == selectedBand;
-        bandButtons[band].setColour (juce::TextButton::buttonColourId,
-                                     selected ? palette::bands[band].withAlpha (0.72f) : palette::panel);
+        const auto shown = eqVisible && static_cast<int> (band) == selectedBand;
         for (int control = 0; control < 3; ++control)
         {
             auto& item = *bandControls[band * 3 + static_cast<size_t> (control)];
-            item.label.setVisible (selected);
-            item.slider.setVisible (selected);
-            item.slider.setColour (juce::Slider::rotarySliderFillColourId, palette::bands[band]);
+            item.label.setVisible (shown);
+            item.slider.setVisible (shown);
         }
-    }
-    distortionButton.setColour (juce::TextButton::buttonColourId, palette::panel);
-    for (auto& control : distortionControls)
-    {
-        control->label.setVisible (false);
-        control->slider.setVisible (false);
-    }
-    resized();
-}
-
-void PluginEditor::selectDistortion()
-{
-    distortionSelected = true;
-    responseGraph->setSelectedBand (-1);
-    selectedBandLabel.setText ("DISTORTION", juce::dontSendNotification);
-    for (auto& button : bandButtons)
-        button.setColour (juce::TextButton::buttonColourId, palette::panel);
-    distortionButton.setColour (juce::TextButton::buttonColourId, palette::bands.back().withAlpha (0.72f));
-    for (auto& control : bandControls)
-    {
-        control->label.setVisible (false);
-        control->slider.setVisible (false);
-    }
-    for (auto& control : distortionControls)
-    {
-        control->label.setVisible (true);
-        control->slider.setVisible (true);
-        control->slider.setColour (juce::Slider::rotarySliderFillColourId, palette::bands.back());
     }
     resized();
 }
 
 void PluginEditor::beginCapture()
 {
-    importStatus.setText ({}, juce::dontSendNotification);
     const auto result = pluginProcessor.startDevelopmentCapture();
     if (result.failed())
-    {
-        workflowEyebrow.setText ("ERROR", juce::dontSendNotification);
-        workflowStatus.setText (result.getErrorMessage(), juce::dontSendNotification);
-        workflowStatus.setColour (juce::Label::textColourId, palette::danger);
-    }
+        showTransientStatus (result.getErrorMessage(), true);
 }
 
 void PluginEditor::beginAnalysis()
@@ -721,11 +826,7 @@ void PluginEditor::beginAnalysis()
     const auto direction = promptEditor.getText().trim();
     const auto result = pluginProcessor.startDevelopmentAnalysis (direction);
     if (result.failed())
-    {
-        workflowEyebrow.setText ("ERROR", juce::dontSendNotification);
-        workflowStatus.setText (result.getErrorMessage(), juce::dontSendNotification);
-        workflowStatus.setColour (juce::Label::textColourId, palette::danger);
-    }
+        showTransientStatus (result.getErrorMessage(), true);
 }
 
 void PluginEditor::cancelWork (bool acceptLatestPreview)
@@ -735,9 +836,17 @@ void PluginEditor::cancelWork (bool acceptLatestPreview)
     pluginProcessor.stopDevelopmentWork (acceptLatestPreview && canUsePreview);
 }
 
+void PluginEditor::showTransientStatus (const juce::String& text, bool isError)
+{
+    transientStatus = text;
+    transientStatusIsError = isError;
+    transientStatusExpiry = juce::Time::currentTimeMillis() + 5000;
+}
+
 void PluginEditor::timerCallback()
 {
     captureProgressValue = pluginProcessor.getCaptureProgress();
+    chainRack->refresh();
     updateAnalysisPreview();
     responseGraph->refresh();
     updateWorkflowState();
@@ -776,7 +885,10 @@ void PluginEditor::updateWorkflowState()
                              || analysisState == DevelopmentAnalysisState::applying;
     const auto interruptible = capturing || analysisState == DevelopmentAnalysisState::running;
     captureButton.setEnabled (! capturing && ! analysisActive);
+    captureButton.setButtonText (capturing ? juce::String { captureProgressValue * 10.0, 1 } + " s"
+                                           : juce::String { "Listen 10s" });
     analyzeButton.setEnabled (captureState == CaptureBuffer::State::ready && ! analysisActive);
+    analyzeButton.setVisible (! interruptible);
     cancelButton.setVisible (interruptible);
     cancelButton.setEnabled (interruptible);
     const auto latestProgress = pluginProcessor.getDevelopmentProgress();
@@ -785,58 +897,35 @@ void PluginEditor::updateWorkflowState()
     cancelButton.setTitle (canUsePreview ? "Stop and use the latest preview" : "Cancel capture or analysis");
     cancelButton.setTooltip (canUsePreview ? "Stop optimizing and apply the latest effect-chain preview"
                                            : "Stop the active listening or analysis task");
-    captureProgress.setVisible (capturing);
-    workflowStatus.setColour (juce::Label::textColourId, palette::muted);
 
+    if (transientStatus.isNotEmpty() && juce::Time::currentTimeMillis() < transientStatusExpiry)
+    {
+        workflowStatus.setColour (juce::Label::textColourId,
+                                  transientStatusIsError ? palette::danger : palette::accent);
+        workflowStatus.setText (transientStatus, juce::dontSendNotification);
+        return;
+    }
+    transientStatus.clear();
+
+    workflowStatus.setColour (juce::Label::textColourId, palette::muted);
     if (capturing)
-    {
-        workflowEyebrow.setText ("LISTENING 0-10 S", juce::dontSendNotification);
-        workflowStatus.setText ("Listening  |  " + juce::String { captureProgressValue * 10.0, 1 }
-                                + " / 10.0 seconds", juce::dontSendNotification);
-    }
-    else if (analysisState == DevelopmentAnalysisState::running)
-    {
-        workflowEyebrow.setText ("ANALYZING", juce::dontSendNotification);
+        workflowStatus.setText ("Listening...", juce::dontSendNotification);
+    else if (analysisState == DevelopmentAnalysisState::running
+             || analysisState == DevelopmentAnalysisState::cancelling
+             || analysisState == DevelopmentAnalysisState::applying
+             || analysisState == DevelopmentAnalysisState::cancelled)
         workflowStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
-    }
-    else if (analysisState == DevelopmentAnalysisState::cancelling)
-    {
-        workflowEyebrow.setText ("STOPPING", juce::dontSendNotification);
-        workflowStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
-    }
-    else if (analysisState == DevelopmentAnalysisState::applying)
-    {
-        workflowEyebrow.setText ("APPLYING", juce::dontSendNotification);
-        workflowStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
-    }
     else if (analysisState == DevelopmentAnalysisState::succeeded)
-    {
-        const auto direction = pluginProcessor.getLastAppliedDirection();
-        lastDirectionLabel.setText ("Last direction: " + direction, juce::dontSendNotification);
-        workflowEyebrow.setText ("APPLIED", juce::dontSendNotification);
-        workflowStatus.setText (pluginProcessor.getDevelopmentStatus() + " - edit any effect below",
+        workflowStatus.setText (pluginProcessor.getDevelopmentStatus() + " - edit any module above",
                                 juce::dontSendNotification);
-    }
     else if (analysisState == DevelopmentAnalysisState::failed)
     {
-        workflowEyebrow.setText ("ERROR", juce::dontSendNotification);
         workflowStatus.setColour (juce::Label::textColourId, palette::danger);
         workflowStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
     }
-    else if (analysisState == DevelopmentAnalysisState::cancelled)
-    {
-        workflowEyebrow.setText ("CANCELLED", juce::dontSendNotification);
-        workflowStatus.setText (pluginProcessor.getDevelopmentStatus(), juce::dontSendNotification);
-    }
     else if (captureState == CaptureBuffer::State::ready)
-    {
-        workflowEyebrow.setText ("CAPTURE READY", juce::dontSendNotification);
-        workflowStatus.setText ("Add a direction, then choose Shape sound", juce::dontSendNotification);
-    }
+        workflowStatus.setText ("Captured. Describe the change, then press Shape sound", juce::dontSendNotification);
     else
-    {
-        workflowEyebrow.setText ("READY", juce::dontSendNotification);
-        workflowStatus.setText ("Play audio, then start listening", juce::dontSendNotification);
-    }
+        workflowStatus.setText ("Play audio, then press Listen", juce::dontSendNotification);
 }
 } // namespace semantifx

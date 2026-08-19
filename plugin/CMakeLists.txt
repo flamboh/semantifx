@@ -35,7 +35,7 @@ juce_add_plugin(Semantifx
   EDITOR_WANTS_KEYBOARD_FOCUS TRUE
   MICROPHONE_PERMISSION_ENABLED TRUE
   MICROPHONE_PERMISSION_TEXT "Semantifx needs microphone access to capture audio for effect analysis."
-  COPY_PLUGIN_AFTER_BUILD FALSE
+  COPY_PLUGIN_AFTER_BUILD TRUE
 )
 
 target_sources(Semantifx PRIVATE
