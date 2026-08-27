@@ -1,12 +1,11 @@
 import contextlib
 import io
-import os
 from pathlib import Path
 import sys
 from typing import Dict, List, Optional, Tuple
 
 from ..errors import SemantiFXError
-from ..model_runtime import default_text2fx_repo, install_model_cache
+from ..model_runtime import install_model_cache
 from ..progress import AnalysisCancelled, ProgressCallback
 
 
@@ -25,33 +24,20 @@ class CLAPAdapter:
 
     name = "clap"
 
-    def __init__(self, repo: Path = None, progress: Optional[ProgressCallback] = None) -> None:
-        configured = os.environ.get("SEMANTIFX_TEXT2FX_REPO")
-        self.repo = Path(configured).expanduser() if configured else (repo or default_text2fx_repo())
+    def __init__(self, progress: Optional[ProgressCallback] = None) -> None:
         self.progress = progress
 
     def _load(self):
-        package_dir = self.repo / "text2fx"
-        if not package_dir.is_dir():
-            raise SemantiFXError(
-                "text2fx_checkout_not_found",
-                "The Text2FX checkout was not found at %s." % self.repo,
-                ["Set SEMANTIFX_TEXT2FX_REPO to the Text2FX repository path."],
-                {"repo": str(self.repo)},
-            )
-        repo_string = str(self.repo)
-        if repo_string not in sys.path:
-            sys.path.insert(0, repo_string)
         try:
-            import text2fx.__main__ as runtime
+            from .. import text2fx_vendor as runtime
             from ..differentiable_chain import EqDistortionChain
         except (ImportError, ModuleNotFoundError) as exc:
             missing = getattr(exc, "name", None) or str(exc)
             raise SemantiFXError(
                 "clap_dependency_unavailable",
                 "The local CLAP optimizer could not load a dependency: %s." % missing,
-                ["Use the sibling Text2FX Python 3.9 environment documented in inference/README.md."],
-                {"repo": str(self.repo), "missing_module": missing, "python": sys.executable},
+                ["Install the pinned inference dependencies documented in inference/README.md."],
+                {"missing_module": missing, "python": sys.executable},
             ) from exc
         return runtime, EqDistortionChain, install_model_cache(runtime)
 
@@ -150,7 +136,6 @@ class CLAPAdapter:
                 {
                     "exception_type": type(exc).__name__,
                     "python": sys.executable,
-                    "repo": str(self.repo),
                     "captured_stdout": stdout_capture.getvalue()[-4000:],
                     "captured_stderr": stderr_capture.getvalue()[-4000:],
                 },

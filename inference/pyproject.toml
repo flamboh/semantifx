@@ -6,8 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "semantifx-inference"
 version = "0.1.0"
 description = "Local JSONL inference worker for SemantiFX"
-requires-python = ">=3.9"
-dependencies = []
+requires-python = ">=3.12"
+dependencies = [
+    "torch~=2.4.1",
+    "torchaudio~=2.4.1",
+    "msclap~=1.3.4",
+    "descript-audiotools~=0.7.2",
+    "dasp-pytorch~=0.0.1",
+    "numpy~=1.26.4",
+]
 
 [project.scripts]
 semantifx-inference = "semantifx_inference.cli:main"

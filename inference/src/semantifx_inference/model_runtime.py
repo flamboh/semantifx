@@ -1,6 +1,5 @@
 """Shared loading helpers for the local CLAP runtime."""
 
-from pathlib import Path
 import threading
 
 
@@ -32,8 +31,3 @@ def install_model_cache(runtime):
     cached_get_model.cache_misses = 0
     runtime.get_model = cached_get_model
     return cached_get_model
-
-
-def default_text2fx_repo() -> Path:
-    semantifx_repo = Path(__file__).resolve().parents[3]
-    return semantifx_repo.parent / "oss" / "text2fx"
