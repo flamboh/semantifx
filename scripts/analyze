@@ -19,9 +19,11 @@ set -- \
   --backend clap \
   --audio "$audio" \
   --prompt "$prompt" \
+  --request-id semantifx-analysis \
   --iterations "$iterations" \
   --random-seed 0 \
-  --parameter-initialization current
+  --parameter-initialization current \
+  --deterministic-metadata
 if [ -n "$progress" ]; then
   set -- "$@" --progress-file "$progress"
 fi

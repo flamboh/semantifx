@@ -38,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze_parser.add_argument("--progress-file", default=None)
     analyze_parser.add_argument("--diagnostics", action="store_true")
+    analyze_parser.add_argument(
+        "--deterministic-metadata",
+        action="store_true",
+        help="Write zero elapsed time so seeded result files can be compared byte-for-byte.",
+    )
     return parser
 
 
@@ -72,6 +77,8 @@ def main(argv=None) -> int:
     if progress is not None:
         progress("preparing", 0, args.iterations)
     result, diagnostics = analyze(request, args.backend, progress)
+    if args.deterministic_metadata:
+        result["elapsed_ms"] = 0.0
     print(json.dumps(result, indent=2, ensure_ascii=False))
     if args.diagnostics and diagnostics:
         print(diagnostics, file=sys.stderr)
