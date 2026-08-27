@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare two rendered EQ responses against their respective dry inputs.
 
-Run this with the Text2FX virtual environment, which supplies NumPy, SciPy,
+Run this with the inference virtual environment, which supplies NumPy, SciPy,
 and SoundFile. Inputs may have different durations; the comparison is between
 their estimated transfer functions rather than their waveforms.
 """

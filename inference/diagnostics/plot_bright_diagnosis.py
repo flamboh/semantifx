@@ -73,7 +73,7 @@ def main():
     response_axis.set_ylabel("Gain (dB)")
     response_axis.legend(loc="lower left")
 
-    figure.suptitle("Text2FX ‘bright’ guitar: published vs. broken vs. fixed", fontsize=16)
+    figure.suptitle("SemantiFX 'bright' guitar: published vs. broken vs. fixed", fontsize=16)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(args.output, dpi=180)
     print(args.output)

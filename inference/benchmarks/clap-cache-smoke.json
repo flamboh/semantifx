@@ -4,7 +4,7 @@
   "repetitions": 2,
   "seed": 1729,
   "audio": [
-    { "id": "guitar", "path": "../../../oss/text2fx/assets/guitar.wav" }
+    { "id": "guitar", "path": "/path/to/guitar.wav" }
   ],
   "prompts": [
     { "id": "warm", "text": "warm and lightly saturated" }

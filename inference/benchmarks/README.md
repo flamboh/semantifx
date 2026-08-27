@@ -23,12 +23,12 @@ PYTHONPATH=src python -m semantifx_inference.benchmark \
 
 ## Real two-request cache smoke
 
-Use the sibling Text2FX Python 3.9 environment. The CLAP smoke manifest repeats the
-same one-iteration request twice so `metrics.model_cache_hit` should be `false`
-then `true`:
+Edit the manifest's placeholder audio path first. The CLAP smoke manifest
+repeats the same one-iteration request twice, so `metrics.model_cache_hit`
+should be `false` then `true`:
 
 ```sh
-PYTHONPATH=src ../../oss/text2fx/.venv/bin/python -m semantifx_inference.benchmark \
+.venv/bin/python -m semantifx_inference.benchmark \
   --manifest benchmarks/clap-cache-smoke.json \
   --jsonl /tmp/semantifx-clap-cache.jsonl \
   --csv /tmp/semantifx-clap-cache.csv

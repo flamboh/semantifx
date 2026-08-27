@@ -46,12 +46,16 @@ See [Architecture](docs/architecture.md), [Domain language](CONTEXT.md), and
 
 ## Try it
 
-Run a real CLAP optimization using the sibling Text2FX environment for the
-model and audio-loading dependencies:
+Create the inference environment, install its pinned dependencies, and run a
+real CLAP optimization on a WAV file:
 
 ```sh
-scripts/analyze ../oss/text2fx/assets/guitar.wav "warm like a hug" 600
+python3.12 -m venv inference/.venv
+inference/.venv/bin/python -m pip install -e inference
+scripts/analyze /path/to/guitar.wav "warm like a hug" 600
 ```
+
+The first run downloads the MS-CLAP weights into the user's model cache.
 
 Build and open the JUCE standalone app:
 
@@ -72,8 +76,8 @@ The same build produces AU and VST3 artifacts. Run all automated checks with
 ## Test in FL Studio
 
 Use the VST3 build for FL Studio. This is a development build, so it expects
-this repository and the sibling Text2FX environment to stay where they were
-when you built it.
+this repository and `inference/.venv` to stay where they were when you built
+it.
 
 ### Build and install it
 
