@@ -2,12 +2,18 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+python=${SEMANTIFX_PYTHON:-"$repo_dir/inference/.venv/bin/python"}
+
+if [ ! -x "$python" ]; then
+  echo "SemantiFX Python environment not found: $python" >&2
+  exit 1
+fi
 
 echo "== Generated artifacts =="
-python3 "$repo_dir/scripts/gen" --check
+"$python" "$repo_dir/scripts/gen" --check
 
 echo "== Inference tests =="
-(cd "$repo_dir/inference" && PYTHONPATH=src python3 -m unittest discover -s tests -v)
+(cd "$repo_dir/inference" && PYTHONPATH=src "$python" -m unittest discover -s tests -v)
 
 echo "== Plugin build and tests =="
 if [ ! -f "$repo_dir/plugin/build/CMakeCache.txt" ]; then
