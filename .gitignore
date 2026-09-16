@@ -16,3 +16,8 @@ __pycache__/
 # Local runtime files
 *.log
 *.wav
+
+# Web
+web/node_modules/
+web/dist/
+!web/public/*.wav

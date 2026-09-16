@@ -42,7 +42,8 @@ effect-chain description, then returns a versioned parameter suggestion. ML
 work never runs on the audio thread.
 
 See [Architecture](docs/architecture.md), [Domain language](CONTEXT.md), and
-[Initial research plan](docs/research-plan.md).
+[Initial research plan](docs/research-plan.md). The landing page lives in
+[`web/`](web/README.md).
 
 ## Try it
 
