@@ -16,3 +16,6 @@ __pycache__/
 # Local runtime files
 *.log
 *.wav
+
+# Secrets
+.env

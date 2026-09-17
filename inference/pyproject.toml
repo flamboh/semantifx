@@ -16,6 +16,9 @@ dependencies = [
     "numpy~=1.26.4",
 ]
 
+[project.optional-dependencies]
+assembly = ["typesafe-sdk~=0.6"]
+
 [project.scripts]
 semantifx-inference = "semantifx_inference.cli:main"
 semantifx-worker = "semantifx_inference.worker:main"

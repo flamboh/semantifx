@@ -97,6 +97,37 @@ Manifest-driven mock and CLAP benchmark examples, including a two-request
 model-cache smoke, are documented in [`benchmarks/README.md`](benchmarks/README.md).
 The runner writes JSONL and CSV summaries and never copies audio into results.
 
+## Chain assembly experiment
+
+The prototype now uses two catalogue-driven TypeSafe Jev requests. Layer 1
+selects useful effects (or an explicit no-change result); Layer 2 asks pairwise
+ordering questions only when at least two effects were selected. The resulting
+chain can contain arbitrary ordered effect types and repeats, although the
+current optimizer still supports only one `eq-1` and one `distortion-1`.
+
+Install the optional dependency and set your API key in the environment or in
+`.env` at the repository root or under `inference/`:
+
+```sh
+.venv/bin/python -m pip install -e ".[assembly]"
+export TYPESAFE_API_KEY="your-key"
+```
+
+Inspect both request payloads without a network call:
+
+```sh
+.venv/bin/python diagnostics/jev_chain_assembly.py \
+  "warm and lightly saturated" --dry-run
+```
+
+Run the built-in six-prompt evaluation:
+
+```sh
+.venv/bin/python diagnostics/jev_chain_assembly.py x --eval
+```
+
+This is an evaluation prototype and is not wired into the worker.
+
 ## Test
 
 ```sh
