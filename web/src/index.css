@@ -1,0 +1,125 @@
+@import url("https://api.fontshare.com/v2/css?f%5B%5D=satoshi@1&display=swap");
+@import "tailwindcss";
+
+/* Satoshi comes from the Fontshare CDN, as in tagium. Its EULA restricts redistribution,
+   so the font file is not committed. */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-hover-foreground: var(--primary-hover-foreground);
+  --color-brand: var(--brand);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans:
+    "Satoshi", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --shadow-xs: 0 1px 3px 0 hsl(0 0% 0% / 0.05);
+}
+
+/* The tagium theme, recolored from a keyboard: a slate purple (#6e6a81) for the
+   brand and primary actions, a dusty rose (#d7c9c6) for borders and tinted surfaces. */
+:root {
+  --purple: oklch(0.5 0.05 290);
+  --rose: oklch(0.84 0.05 15);
+  --radius: 0.125rem;
+  --background: oklch(0.982 0.003 25);
+  --foreground: oklch(0.25 0.02 290);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --primary: var(--purple);
+  --primary-foreground: oklch(0.982 0.003 25);
+  --primary-hover: oklch(0.6 0.05 290);
+  --primary-hover-foreground: oklch(0.982 0.003 25);
+  --brand: var(--purple);
+  --secondary: var(--rose);
+  --secondary-foreground: oklch(0.5 0.1 15);
+  --muted: color-mix(in oklab, var(--rose) 35%, var(--background));
+  --muted-foreground: oklch(0.5 0.02 290);
+  --accent: color-mix(in oklab, var(--rose) 45%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: oklch(0.88 0.025 15);
+  --input: oklch(0.88 0.025 15);
+  --ring: var(--purple);
+}
+
+.dark {
+  --background: oklch(0.22 0.02 290);
+  --foreground: oklch(0.95 0.01 25);
+  --card: oklch(0.26 0.02 290);
+  --card-foreground: var(--foreground);
+  --primary: oklch(0.62 0.05 290);
+  --primary-foreground: oklch(0.97 0.01 25);
+  --primary-hover: var(--rose);
+  --primary-hover-foreground: oklch(0.25 0.02 290);
+  --brand: oklch(0.78 0.05 290);
+  /* The rose stays at its sampled lightness in dark mode. Darkening it turns it orange. */
+  --secondary: var(--rose);
+  --secondary-foreground: oklch(0.25 0.02 290);
+  --muted: oklch(0.3 0.02 290);
+  --muted-foreground: oklch(0.72 0.02 25);
+  --accent: color-mix(in oklab, var(--rose) 18%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: oklch(0.34 0.02 290);
+  --input: oklch(0.34 0.02 290);
+  --ring: var(--rose);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    /* Native controls such as <audio> follow the page theme. */
+    color-scheme: light dark;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100svh;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-weight: 500;
+    /* Satoshi ss01: single-storey "a". */
+    font-feature-settings: "ss01" 1;
+  }
+
+  ::selection {
+    @apply bg-brand text-background;
+  }
+
+  /* The native audio player pill takes the rose. Chromium exposes the panel; other
+     engines fall back to their default pill. Light scheme keeps the glyphs dark on it. */
+  audio {
+    color-scheme: light;
+  }
+
+  audio::-webkit-media-controls-panel {
+    background-color: var(--secondary);
+  }
+}
