@@ -105,6 +105,10 @@ SEMANTIFX_RUN_MODEL_TESTS=1 .venv/bin/python -m unittest \
   discover -s tests -p 'test_golden_reproducibility.py' -v
 ```
 
+The golden test forces CPU because the CLAP encoder's CUDA bicubic backward is
+nondeterministic, and the optimizer amplifies its noise. CPU is bit-exact and
+no slower for this fixture.
+
 ## Citation
 
 SemantiFX vendors the executed runtime paths from Text2FX by Annie Chu, Patrick
