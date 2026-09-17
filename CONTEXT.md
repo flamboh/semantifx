@@ -17,6 +17,12 @@ _Avoid_: Effect when the distinction between a kind and an occurrence matters
 One identifiable occurrence of an effect type in a chain. Multiple instances
 may have the same effect type but retain separate identities and parameters.
 
+**Effect catalogue**:
+The set of effect types the assembler may select from and the optimizer can
+run. Each entry carries a protocol definition, a Jev description, and matching
+Python and C++ implementations.
+_Avoid_: Registry, schema, supported effects
+
 **Effect chain**:
 An ordered sequence of effect instances through which audio is processed.
 _Avoid_: Model, preset
