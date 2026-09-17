@@ -50,9 +50,9 @@ From the repository root:
 scripts/analyze /path/to/guitar.wav "warm and lightly saturated" 10
 ```
 
-`scripts/analyze` writes `/tmp/semantifx-analysis.json` by default. It fixes the
-request ID and zeroes elapsed-time metadata so seeded result files can be
-compared byte-for-byte. Set `SEMANTIFX_PYTHON` to override the interpreter.
+`scripts/analyze` writes `/tmp/semantifx-analysis.json` by default and gives each
+run a UTC timestamped request ID. Set `SEMANTIFX_PYTHON` to override the
+interpreter.
 
 The CLAP adapter builds SemantiFX's differentiable EQ + distortion chain in the
 submitted order and optimizes its normalized physical parameters directly. It

@@ -15,15 +15,16 @@ if [ ! -x "$python" ]; then
   exit 1
 fi
 
+request_timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
+
 set -- \
   --backend clap \
   --audio "$audio" \
   --prompt "$prompt" \
-  --request-id semantifx-analysis \
+  --request-id "semantifx-analysis-$request_timestamp" \
   --iterations "$iterations" \
   --random-seed 0 \
-  --parameter-initialization current \
-  --deterministic-metadata
+  --parameter-initialization current
 if [ -n "$progress" ]; then
   set -- "$@" --progress-file "$progress"
 fi

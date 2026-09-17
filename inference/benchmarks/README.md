@@ -23,8 +23,9 @@ PYTHONPATH=src python -m semantifx_inference.benchmark \
 
 ## Real two-request cache smoke
 
-Edit the manifest's placeholder audio path first. The CLAP smoke manifest
-repeats the same one-iteration request twice, so `metrics.model_cache_hit`
+Place `guitar.wav` and `speech.wav` in `inference/benchmarks/audio/` first. The
+CLAP smoke manifest repeats the same one-iteration request twice, so
+`metrics.model_cache_hit`
 should be `false` then `true`:
 
 ```sh

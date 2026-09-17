@@ -4,8 +4,8 @@
   "repetitions": 1,
   "seed": 1729,
   "audio": [
-    { "id": "guitar", "path": "/path/to/guitar.wav" },
-    { "id": "speech", "path": "/path/to/speech.wav" }
+    { "id": "guitar", "path": "audio/guitar.wav" },
+    { "id": "speech", "path": "audio/speech.wav" }
   ],
   "prompts": [
     { "id": "warm-clear", "text": "warm, but keep it clear" },
