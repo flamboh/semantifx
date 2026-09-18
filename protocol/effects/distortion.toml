@@ -1,5 +1,7 @@
 # SemantiFX-owned distortion definition. See eq.toml for the field reference.
 effect_type = "distortion"
+description = "Distortion with drive, character, tone, and wet/dry mix. Nonlinear waveshaping that adds harmonics for saturation, grit, warmth from soft clipping, overdrive, fuzz, and aggression."
+order = 1
 
 [[parameters]]
 name = "drive_db"
@@ -9,7 +11,6 @@ min = 0.0
 max = 48.0
 default = 0.0
 step = 0.1
-plugin_id = "distortion_drive_db"
 
 [[parameters]]
 name = "character"
@@ -19,7 +20,6 @@ min = 0.0
 max = 1.0
 default = 0.5
 step = 0.001
-plugin_id = "distortion_character"
 
 [[parameters]]
 name = "tone_db"
@@ -29,7 +29,6 @@ min = -12.0
 max = 12.0
 default = 0.0
 step = 0.1
-plugin_id = "distortion_tone_db"
 
 [[parameters]]
 name = "mix"
@@ -39,4 +38,3 @@ min = 0.0
 max = 1.0
 default = 0.25
 step = 0.001
-plugin_id = "distortion_mix"

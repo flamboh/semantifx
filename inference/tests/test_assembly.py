@@ -1,9 +1,8 @@
 import unittest
 
 from semantifx_inference.assembly import (
-    DEFAULT_CATALOGUE,
+    CATALOGUE_DESCRIPTIONS,
     NO_CHANGE_THRESHOLD,
-    optimizer_note,
     order_effects,
     order_questions,
     select_effects,
@@ -14,8 +13,8 @@ from semantifx_inference.assembly import (
 
 class AssemblyTests(unittest.TestCase):
     def test_selection_questions_match_catalogue_plus_no_change(self):
-        questions = selection_questions(DEFAULT_CATALOGUE)
-        self.assertEqual(len(questions), len(DEFAULT_CATALOGUE) + 1)
+        questions = selection_questions(CATALOGUE_DESCRIPTIONS)
+        self.assertEqual(len(questions), len(CATALOGUE_DESCRIPTIONS) + 1)
         self.assertEqual(set(questions), {"use_eq", "use_distortion", "no_change"})
 
     def test_no_change_wins(self):
@@ -24,7 +23,7 @@ class AssemblyTests(unittest.TestCase):
             "use_distortion": {"noul": 0.9},
             "no_change": {"noul": NO_CHANGE_THRESHOLD},
         }
-        self.assertEqual(select_effects(answers, DEFAULT_CATALOGUE), [])
+        self.assertEqual(select_effects(answers, CATALOGUE_DESCRIPTIONS), [])
 
     def test_order_questions_for_three_effects(self):
         selected = ["eq", "distortion", "compressor"]
@@ -58,10 +57,6 @@ class AssemblyTests(unittest.TestCase):
         self.assertEqual([item["instance_id"] for item in chain], ["distortion-1", "eq-1", "distortion-2"])
         self.assertEqual(chain[0]["parameters"]["drive_db"], 0.0)
         self.assertEqual(chain[1]["parameters"]["low_shelf_gain_db"], 0.0)
-
-    def test_optimizer_note(self):
-        self.assertIsNone(optimizer_note(to_chain(["eq", "distortion"])))
-        self.assertIsNotNone(optimizer_note(to_chain(["eq"])))
 
 
 if __name__ == "__main__":

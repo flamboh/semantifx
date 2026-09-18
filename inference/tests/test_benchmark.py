@@ -72,11 +72,11 @@ class BenchmarkTests(unittest.TestCase):
                 load_manifest(path)
         self.assertIn("not_an_option", str(raised.exception))
 
-    def test_benchmark_applies_effect_order(self):
+    def test_benchmark_applies_chain_types(self):
         value = manifest()
         value["prompts"] = value["prompts"][:1]
         value["matrix"]["iterations"] = [1]
-        value["matrix"]["effect_order"] = ["distortion-eq"]
+        value["matrix"]["chain"] = [["distortion", "eq"]]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest_path = root / "manifest.json"
@@ -88,7 +88,7 @@ class BenchmarkTests(unittest.TestCase):
 
             record = json.loads(jsonl_path.read_text(encoding="utf-8"))
         self.assertEqual(record["chain_order"], ["distortion-1", "eq-1"])
-        self.assertEqual(record["config"]["effect_order"], "distortion-eq")
+        self.assertEqual(record["config"]["chain"], ["distortion", "eq"])
 
 
 if __name__ == "__main__":

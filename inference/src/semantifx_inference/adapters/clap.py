@@ -19,8 +19,26 @@ def load_optimization_audio(runtime, audio_path: Path):
     )
 
 
+def _freeze_model(model) -> None:
+    """Freeze the loaded CLAP parameters while retaining gradients to audio."""
+    candidates = [
+        model,
+        getattr(model, "clap_model", None),
+        getattr(getattr(model, "clap_model", None), "clap", None),
+    ]
+    seen = set()
+    for candidate in candidates:
+        if candidate is None or id(candidate) in seen:
+            continue
+        seen.add(id(candidate))
+        parameters = getattr(candidate, "parameters", None)
+        if callable(parameters):
+            for parameter in parameters():
+                parameter.requires_grad_(False)
+
+
 class CLAPAdapter:
-    """Optimize the SemantiFX-owned fixed chain using a cached CLAP model."""
+    """Optimize a variable effect chain using a cached CLAP model."""
 
     name = "clap"
 
@@ -30,7 +48,7 @@ class CLAPAdapter:
     def _load(self):
         try:
             from .. import text2fx_vendor as runtime
-            from ..differentiable_chain import EqDistortionChain
+            from ..differentiable_chain import VariableChain
         except (ImportError, ModuleNotFoundError) as exc:
             missing = getattr(exc, "name", None) or str(exc)
             raise SemantiFXError(
@@ -39,9 +57,16 @@ class CLAPAdapter:
                 ["Install the pinned inference dependencies documented in inference/README.md."],
                 {"missing_module": missing, "python": sys.executable},
             ) from exc
-        return runtime, EqDistortionChain, install_model_cache(runtime)
+        return runtime, VariableChain, install_model_cache(runtime)
 
     def analyze(self, request: dict) -> Tuple[List[dict], Dict[str, object], List[str], str]:
+        options = request.get("options", {})
+        total_steps = options.get("iterations", 100)
+        if not request["chain"]:
+            if self.progress is not None:
+                self.progress("finalizing", 0, 0, [])
+            return [], {"iterations": 0}, ["The chain is empty; nothing to optimize."], ""
+
         audio_path = Path(request["audio"]["path"]).expanduser()
         if not audio_path.is_file():
             raise SemantiFXError(
@@ -51,8 +76,6 @@ class CLAPAdapter:
                 {"path": str(audio_path)},
             )
 
-        options = request.get("options", {})
-        total_steps = options.get("iterations", 100)
         if self.progress is not None:
             self.progress("loading_model", 0, total_steps, None)
 
@@ -65,6 +88,7 @@ class CLAPAdapter:
                 cache_hits_before = model_loader.cache_hits
                 cache_misses_before = model_loader.cache_misses
                 model = model_loader(options.get("model", "ms_clap"))
+                _freeze_model(model)
                 runtime.seed_runtime(seed)
 
                 signal = load_optimization_audio(runtime, audio_path)

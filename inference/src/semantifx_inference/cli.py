@@ -4,13 +4,16 @@ from pathlib import Path
 import sys
 import uuid
 
-from .chain_schema import DISTORTION_THEN_EQ, EQ_THEN_DISTORTION, default_chain
+from .catalogue import default_chain
 from .progress import ProgressFileWriter
 from .service import analyze
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="SemantiFX local inference commands.")
+    parser = argparse.ArgumentParser(
+        description="SemantiFX local inference commands.",
+        epilog="Analyze accepts --chain TYPES or --chain-file PATH.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     analyze_parser = subparsers.add_parser(
         "analyze", help="Analyze one audio file and print a versioned chain result."
@@ -31,10 +34,16 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--parameter-regularization", type=float, default=0.0)
     analyze_parser.add_argument("--roll-samples", type=int, default=None)
     analyze_parser.add_argument("--random-seed", type=int, default=0)
-    analyze_parser.add_argument(
-        "--effect-order",
-        choices=("eq-distortion", "distortion-eq"),
-        default="eq-distortion",
+    chain_group = analyze_parser.add_mutually_exclusive_group()
+    chain_group.add_argument(
+        "--chain",
+        default="eq,distortion",
+        help="Comma-separated effect types in chain order.",
+    )
+    chain_group.add_argument(
+        "--chain-file",
+        type=Path,
+        help="JSON file containing a chain list.",
     )
     analyze_parser.add_argument("--progress-file", default=None)
     analyze_parser.add_argument("--diagnostics", action="store_true")
@@ -46,8 +55,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _chain_from_args(args) -> list[dict]:
+    if args.chain_file is not None:
+        try:
+            value = json.loads(args.chain_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("Could not read --chain-file: %s" % exc) from exc
+        if not isinstance(value, list):
+            raise ValueError("--chain-file must contain a JSON chain list.")
+        return value
+    types = [item.strip() for item in args.chain.split(",") if item.strip()]
+    return default_chain(types)
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    try:
+        chain = _chain_from_args(args)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     options = {
         "backend": args.backend,
         "iterations": args.iterations,
@@ -66,14 +93,18 @@ def main(argv=None) -> int:
         "request_id": args.request_id or str(uuid.uuid4()),
         "prompt": args.prompt,
         "audio": {"path": args.audio},
+        "chain": chain,
         "options": options,
     }
-    order = DISTORTION_THEN_EQ if args.effect_order == "distortion-eq" else EQ_THEN_DISTORTION
-    request["chain"] = default_chain(order)
-    progress = ProgressFileWriter(
-        Path(args.progress_file), request["request_id"],
-        [item["instance_id"] for item in request["chain"]],
-    ) if args.progress_file else None
+    progress = (
+        ProgressFileWriter(
+            Path(args.progress_file),
+            request["request_id"],
+            [item["instance_id"] for item in request["chain"]],
+        )
+        if args.progress_file
+        else None
+    )
     if progress is not None:
         progress("preparing", 0, args.iterations)
     result, diagnostics = analyze(request, args.backend, progress)

@@ -10,7 +10,7 @@ from .protocol import error_result, ok_result, validate_request
 
 def _adapter(name: str, progress: Optional[ProgressCallback] = None):
     if name == "mock":
-        return MockAdapter()
+        return MockAdapter(progress=progress)
     if name == "clap":
         return CLAPAdapter(progress=progress)
     raise SemantiFXError(
@@ -35,9 +35,9 @@ def analyze(
         adapter = _adapter(backend, progress)
         parameters, metrics, warnings, diagnostics = adapter.analyze(request)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        effect_order = [item["instance_id"] for item in request["chain"]]
+        chain_order = [item["instance_id"] for item in request["chain"]]
         return ok_result(
-            request["request_id"], backend, elapsed_ms, effect_order,
+            request["request_id"], backend, elapsed_ms, chain_order,
             parameters, metrics, warnings
         ), diagnostics
     except AnalysisCancelled:
@@ -45,7 +45,7 @@ def analyze(
     except SemantiFXError as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return error_result(exc, request_id, backend, elapsed_ms), diagnostics
-    except Exception as exc:  # Last-resort containment: never crash a DAW-owned worker.
+    except Exception as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         error = SemantiFXError(
             "internal_error",

@@ -1,0 +1,8 @@
+{
+  "type": "assemble",
+  "request_id": "assembly-demo-001",
+  "prompt": "warm and lightly saturated",
+  "options": {
+    "backend": "mock"
+  }
+}

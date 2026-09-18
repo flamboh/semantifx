@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate protocol schemas and parameter tables from protocol/effects/*.toml.
 
-The effect definitions are the single source of truth for parameter names,
-units, ranges, defaults, and plugin metadata. This script emits:
+The effect definitions are the single source of truth for effect descriptions,
+parameter names, units, ranges, and defaults. This script emits:
 
   protocol/schemas/request.schema.json
   protocol/schemas/result.schema.json
@@ -20,44 +20,55 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# The fixed chain: one instance of each effect, id "<effect_type>-1". Chain
-# generalization will replace this list with host-supplied topologies.
-CANONICAL_CHAIN = ("eq", "distortion")
-
 
 def load_effects():
     effects = []
-    for effect_type in CANONICAL_CHAIN:
-        path = REPO / "protocol" / "effects" / (effect_type + ".toml")
+    effects_dir = REPO / "protocol" / "effects"
+    for path in sorted(effects_dir.glob("*.toml")):
         with path.open("rb") as handle:
             definition = tomllib.load(handle)
-        if definition.get("effect_type") != effect_type:
-            raise SystemExit("%s must define effect_type %r." % (path, effect_type))
+        effect_type = definition.get("effect_type")
+        if not isinstance(effect_type, str) or not effect_type:
+            raise SystemExit("%s must define a non-empty effect_type." % path)
+        description = definition.get("description")
+        if not isinstance(description, str) or not description.strip():
+            raise SystemExit("%s must define a non-empty description." % path)
+        order = definition.get("order")
+        if isinstance(order, bool) or not isinstance(order, int):
+            raise SystemExit("%s must define an integer order." % path)
         parameters = definition.get("parameters", [])
         if not parameters:
             raise SystemExit("%s defines no parameters." % path)
+        parameter_names = set()
         for parameter in parameters:
             for field in ("name", "display_name", "unit", "min", "max", "default"):
                 if field not in parameter:
                     raise SystemExit(
                         "%s parameter %r is missing %r." % (path, parameter.get("name"), field)
                     )
+            if parameter["name"] in parameter_names:
+                raise SystemExit("%s defines parameter %r more than once." % (path, parameter["name"]))
+            parameter_names.add(parameter["name"])
+            if "plugin_id" in parameter:
+                raise SystemExit("%s parameter %r must not define plugin_id." % (path, parameter["name"]))
             parameter.setdefault("step", 0.0)
             parameter.setdefault("scale", "linear")
-            parameter.setdefault("plugin_id", parameter["name"])
             if parameter["scale"] not in ("linear", "log"):
                 raise SystemExit("%s parameter %r has an unknown scale." % (path, parameter["name"]))
-        definition["instance_id"] = effect_type + "-1"
         effects.append(definition)
+    effects.sort(key=lambda effect: effect["order"])
+    effect_types = [effect["effect_type"] for effect in effects]
+    if len(effect_types) != len(set(effect_types)):
+        raise SystemExit("Effect types must be unique.")
+    orders = [effect["order"] for effect in effects]
+    if len(orders) != len(set(orders)):
+        raise SystemExit("Effect orders must be unique.")
     return effects
 
 
-def chain_orders(effects):
-    forward = [effect["instance_id"] for effect in effects]
-    return [forward, list(reversed(forward))]
 
 
-def request_schema(effects):
+def chain_definitions(effects):
     defs = {}
     for effect in effects:
         effect_type = effect["effect_type"]
@@ -66,7 +77,7 @@ def request_schema(effects):
             "additionalProperties": False,
             "required": ["instance_id", "effect_type", "parameters"],
             "properties": {
-                "instance_id": {"const": effect["instance_id"]},
+                "instance_id": {"type": "string", "minLength": 1, "maxLength": 64},
                 "effect_type": {"const": effect_type},
                 "parameters": {"$ref": "#/$defs/" + effect_type + "Parameters"},
             },
@@ -84,130 +95,246 @@ def request_schema(effects):
                 for parameter in effect["parameters"]
             },
         }
+    return defs
+
+
+def chain_schema(effects):
+    return {
+        "type": "array",
+        "minItems": 0,
+        "maxItems": 8,
+        "uniqueItems": True,
+        "items": {
+            "oneOf": [
+                {"$ref": "#/$defs/" + effect["effect_type"] + "ChainItem"}
+                for effect in effects
+            ]
+        },
+    }
+
+
+def analyze_options_schema():
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "backend": {"enum": ["mock", "clap"]},
+            "model": {"enum": ["ms_clap", "laion_clap"]},
+            "criterion": {"enum": ["cosine-sim", "directional_loss", "standard"]},
+            "iterations": {"type": "integer", "minimum": 1, "maximum": 10000},
+            "learning_rate": {"type": "number", "exclusiveMinimum": 0},
+            "parameter_initialization": {"enum": ["current", "random"]},
+            "parameter_regularization": {"type": "number", "minimum": 0},
+            "roll_samples": {"type": "integer", "minimum": 0},
+            "random_seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        },
+    }
+
+
+def request_schema(effects):
+    defs = {
+        "analyzeRequest": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["type", "request_id", "prompt", "audio", "chain"],
+            "properties": {
+                "type": {"const": "analyze"},
+                "request_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "audio": {"$ref": "#/$defs/audio"},
+                "chain": {"$ref": "#/$defs/chain"},
+                "options": {"$ref": "#/$defs/analyzeOptions"},
+            },
+        },
+        "assembleRequest": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["type", "request_id", "prompt"],
+            "properties": {
+                "type": {"const": "assemble"},
+                "request_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "options": {"$ref": "#/$defs/assemblyOptions"},
+            },
+        },
+        "audio": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["path"],
+            "properties": {"path": {"type": "string", "minLength": 1}},
+        },
+        "chain": chain_schema(effects),
+        "analyzeOptions": analyze_options_schema(),
+        "assemblyOptions": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"backend": {"enum": ["mock", "jev"]}},
+        },
+    }
+    defs.update(chain_definitions(effects))
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://semantifx.local/protocol/request.schema.json",
-        "title": "SemantiFX analysis request",
+        "title": "SemantiFX protocol request",
+        "type": "object",
+        "oneOf": [
+            {"$ref": "#/$defs/analyzeRequest"},
+            {"$ref": "#/$defs/assembleRequest"},
+        ],
+        "$defs": defs,
+    }
+
+def parameter_entry_schema(effect, effect_types):
+    parameters = effect["parameters"]
+    return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["type", "request_id", "prompt", "audio", "chain"],
+        "required": ["effect_instance_id", "effect", "name", "value", "unit"],
         "properties": {
-            "type": {"const": "analyze"},
-            "request_id": {"type": "string", "minLength": 1, "maxLength": 200},
-            "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
-            "audio": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["path"],
-                "properties": {"path": {"type": "string", "minLength": 1}},
-            },
-            "chain": {
-                "type": "array",
-                "minItems": len(effects),
-                "maxItems": len(effects),
+            "effect_instance_id": {"type": "string", "minLength": 1, "maxLength": 64},
+            "effect": {"enum": effect_types},
+            "name": {"enum": [parameter["name"] for parameter in parameters]},
+            "value": {"type": "number"},
+            "unit": {"enum": sorted({parameter["unit"] for parameter in parameters})},
+        },
+        "allOf": [
+            {"properties": {"effect": {"const": effect["effect_type"]}}},
+            {
                 "oneOf": [
                     {
-                        "prefixItems": [
-                            {"$ref": "#/$defs/" + instance_id.rsplit("-", 1)[0] + "ChainItem"}
-                            for instance_id in order
-                        ],
-                        "items": False,
+                        "properties": {
+                            "name": {"const": parameter["name"]},
+                            "unit": {"const": parameter["unit"]},
+                        }
                     }
-                    for order in chain_orders(effects)
-                ],
+                    for parameter in parameters
+                ]
             },
-            "options": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "backend": {"enum": ["mock", "clap"]},
-                    "model": {"enum": ["ms_clap", "laion_clap"]},
-                    "criterion": {"enum": ["cosine-sim", "directional_loss", "standard"]},
-                    "iterations": {"type": "integer", "minimum": 1, "maximum": 10000},
-                    "learning_rate": {"type": "number", "exclusiveMinimum": 0},
-                    "parameter_initialization": {"enum": ["current", "random"]},
-                    "parameter_regularization": {"type": "number", "minimum": 0},
-                    "roll_samples": {"type": "integer", "minimum": 0},
-                    "random_seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
-                },
-            },
-        },
-        "$defs": defs,
+        ],
     }
 
 
 def result_schema(effects):
-    parameter_items = [
-        {
+    defs = {
+        "analysisResult": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["effect_instance_id", "effect", "name", "value", "unit"],
+            "required": ["type", "request_id", "status", "backend", "elapsed_ms"],
             "properties": {
-                "effect_instance_id": {"const": effect["instance_id"]},
-                "effect": {"const": effect["effect_type"]},
-                "name": {"const": parameter["name"]},
-                "value": {"type": "number"},
-                "unit": {"const": parameter["unit"]},
+                "type": {"const": "analysis_result"},
+                "request_id": {"type": ["string", "null"]},
+                "status": {"enum": ["ok", "error"]},
+                "backend": {"type": ["string", "null"]},
+                "elapsed_ms": {"type": "number", "minimum": 0},
+                "chain_order": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 8,
+                    "uniqueItems": True,
+                    "items": {"type": "string", "minLength": 1},
+                },
+                "parameters": {
+                    "type": "array",
+                    "minItems": 0,
+                    "uniqueItems": True,
+                    "items": {"$ref": "#/$defs/parameterEntry"},
+                },
+                "metrics": {"type": "object"},
+                "warnings": {"type": "array", "items": {"type": "string"}},
+                "error": {"$ref": "#/$defs/error"},
             },
-        }
-        for effect in effects
-        for parameter in effect["parameters"]
-    ]
+            "allOf": [
+                {
+                    "if": {"properties": {"status": {"const": "ok"}}},
+                    "then": {"required": ["chain_order", "parameters", "metrics", "warnings"]},
+                    "else": {"required": ["error"]},
+                }
+            ],
+        },
+        "assemblyResult": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["type", "request_id", "status", "backend", "elapsed_ms"],
+            "properties": {
+                "type": {"const": "assembly_result"},
+                "request_id": {"type": ["string", "null"]},
+                "status": {"enum": ["ok", "error"]},
+                "backend": {"type": ["string", "null"]},
+                "elapsed_ms": {"type": "number", "minimum": 0},
+                "chain": {"$ref": "#/$defs/chain"},
+                "judgments": {"$ref": "#/$defs/judgments"},
+                "warnings": {"type": "array", "items": {"type": "string"}},
+                "error": {"$ref": "#/$defs/error"},
+            },
+            "allOf": [
+                {
+                    "if": {"properties": {"status": {"const": "ok"}}},
+                    "then": {"required": ["chain", "judgments", "warnings"]},
+                    "else": {"required": ["error"]},
+                }
+            ],
+        },
+        "chain": chain_schema(effects),
+    }
+    defs.update(chain_definitions(effects))
+    effect_types = [effect["effect_type"] for effect in effects]
+    for effect in effects:
+        defs[effect["effect_type"] + "ParameterEntry"] = parameter_entry_schema(effect, effect_types)
+    defs["parameterEntry"] = {
+        "oneOf": [
+            {"$ref": "#/$defs/" + effect["effect_type"] + "ParameterEntry"}
+            for effect in effects
+        ]
+    }
+    defs["error"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["code", "message", "remediation"],
+        "properties": {
+            "code": {
+                "enum": [
+                    "invalid_json",
+                    "invalid_request",
+                    "backend_unavailable",
+                    "internal_error",
+                    "clap_dependency_unavailable",
+                    "audio_not_found",
+                    "clap_execution_failed",
+                    "assembly_unavailable",
+                ]
+            },
+            "message": {"type": "string", "minLength": 1},
+            "remediation": {"type": "array", "items": {"type": "string"}},
+            "details": {"type": "object"},
+        },
+    }
+    defs["judgments"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["selection", "no_change", "order"],
+        "properties": {
+            "selection": {
+                "type": "object",
+                "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+            "no_change": {"type": "number", "minimum": 0, "maximum": 1},
+            "order": {
+                "type": "object",
+                "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+        },
+    }
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://semantifx.local/protocol/result.schema.json",
-        "title": "SemantiFX analysis result",
+        "title": "SemantiFX protocol result",
         "type": "object",
-        "additionalProperties": False,
-        "required": ["type", "request_id", "status", "backend", "elapsed_ms"],
-        "properties": {
-            "type": {"const": "analysis_result"},
-            "request_id": {"type": ["string", "null"]},
-            "status": {"enum": ["ok", "error"]},
-            "backend": {"type": ["string", "null"]},
-            "elapsed_ms": {"type": "number", "minimum": 0},
-            "chain_order": {
-                "type": "array",
-                "minItems": len(effects),
-                "maxItems": len(effects),
-                "oneOf": [
-                    {
-                        "prefixItems": [{"const": instance_id} for instance_id in order],
-                        "items": False,
-                    }
-                    for order in chain_orders(effects)
-                ],
-            },
-            "parameters": {
-                "type": "array",
-                "minItems": len(parameter_items),
-                "maxItems": len(parameter_items),
-                "prefixItems": parameter_items,
-                "items": False,
-            },
-            "metrics": {"type": "object"},
-            "warnings": {"type": "array", "items": {"type": "string"}},
-            "error": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["code", "message", "remediation"],
-                "properties": {
-                    "code": {"type": "string", "minLength": 1},
-                    "message": {"type": "string", "minLength": 1},
-                    "remediation": {"type": "array", "items": {"type": "string"}},
-                    "details": {"type": "object"},
-                },
-            },
-        },
-        "allOf": [
-            {
-                "if": {"properties": {"status": {"const": "ok"}}},
-                "then": {"required": ["chain_order", "parameters", "metrics", "warnings"]},
-                "else": {"required": ["error"]},
-            }
+        "oneOf": [
+            {"$ref": "#/$defs/analysisResult"},
+            {"$ref": "#/$defs/assemblyResult"},
         ],
+        "$defs": defs,
     }
-
 
 def cpp_header(effects):
     total = sum(len(effect["parameters"]) for effect in effects)
@@ -222,11 +349,8 @@ def cpp_header(effects):
         "{",
         "struct ParameterSpec",
         "{",
-        "    const char* effectInstanceId;",
-        "    const char* effectType;",
         "    const char* name;",
         "    const char* unit;",
-        "    const char* pluginParameterId;",
         "    const char* displayName;",
         "    float minimum;",
         "    float maximum;",
@@ -235,27 +359,24 @@ def cpp_header(effects):
         "    bool logarithmic; // host normalization skewed toward sqrt(minimum * maximum)",
         "};",
         "",
-    ]
-    for effect in effects:
-        lines.append(
-            "inline constexpr std::size_t %sParameterCount = %d;"
-            % (effect["effect_type"], len(effect["parameters"]))
-        )
-    lines += [
+        "struct EffectTypeSpec",
+        "{",
+        "    const char* name;",
+        "    std::size_t firstParameter;",
+        "    std::size_t parameterCount;",
+        "    const char* description;",
+        "};",
         "",
-        "inline constexpr std::array<ParameterSpec, %d> chainParameterSpecs {{" % total,
+        "inline constexpr std::array<ParameterSpec, %d> parameters {{" % total,
     ]
     for effect in effects:
         for parameter in effect["parameters"]:
             lines.append(
-                '    { "%s", "%s", "%s", "%s", "%s", "%s", %sf, %sf, %sf, %sf, %s },'
+                "    { %s, %s, %s, %sf, %sf, %sf, %sf, %s },"
                 % (
-                    effect["instance_id"],
-                    effect["effect_type"],
-                    parameter["name"],
-                    parameter["unit"],
-                    parameter["plugin_id"],
-                    parameter["display_name"],
+                    json.dumps(parameter["name"]),
+                    json.dumps(parameter["unit"]),
+                    json.dumps(parameter["display_name"]),
                     float(parameter["min"]),
                     float(parameter["max"]),
                     float(parameter["default"]),
@@ -265,6 +386,24 @@ def cpp_header(effects):
             )
     lines += [
         "}};",
+        "",
+        "inline constexpr std::array<EffectTypeSpec, %d> effectTypes {{" % len(effects),
+    ]
+    offset = 0
+    for effect in effects:
+        lines.append(
+            "    { %s, %d, %d, %s },"
+            % (
+                json.dumps(effect["effect_type"]),
+                offset,
+                len(effect["parameters"]),
+                json.dumps(effect["description"]),
+            )
+        )
+        offset += len(effect["parameters"])
+    lines += [
+        "}};",
+        "inline constexpr int kEffectTypeCount = %d;" % len(effects),
         "} // namespace semantifx::protocol",
         "",
     ]
@@ -275,11 +414,14 @@ def python_module(effects):
     lines = [
         '"""Generated by scripts/gen from protocol/effects/*.toml. Do not edit."""',
         "",
-        "# (instance_id, effect_type, ((name, unit, min, max, default), ...))",
+        "# (effect_type, description, ((name, unit, min, max, default), ...))",
         "EFFECTS = (",
     ]
     for effect in effects:
-        lines.append('    ("%s", "%s", (' % (effect["instance_id"], effect["effect_type"]))
+        lines.append(
+            "    (%s, %s, ("
+            % (json.dumps(effect["effect_type"]), json.dumps(effect["description"]))
+        )
         for parameter in effect["parameters"]:
             lines.append(
                 '        ("%s", "%s", %r, %r, %r),'
@@ -294,7 +436,6 @@ def python_module(effects):
         lines.append("    )),")
     lines += [")", ""]
     return "\n".join(lines)
-
 
 def artifacts():
     effects = load_effects()

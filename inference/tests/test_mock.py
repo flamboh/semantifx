@@ -1,6 +1,6 @@
 import unittest
 
-from semantifx_inference.chain_schema import default_chain
+from semantifx_inference.catalogue import default_chain
 from semantifx_inference.service import analyze
 
 
@@ -27,7 +27,7 @@ class MockAdapterTests(unittest.TestCase):
         self.assertGreater(distortion["drive_db"], 0.0)
         self.assertGreater(distortion["mix"], 0.25)
 
-    def test_echoes_reversed_effect_order(self):
+    def test_echoes_reversed_chain_order(self):
         value = request("warm")
         value["chain"].reverse()
         result, _ = analyze(value)
@@ -61,3 +61,24 @@ class MockAdapterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_empty_chain_is_a_no_op(self):
+        value = request("warm")
+        value["chain"] = []
+        result, _ = analyze(value)
+        self.assertEqual(result["parameters"], [])
+        self.assertEqual(result["metrics"]["iterations"], 0)
+        self.assertEqual(result["warnings"], ["The chain is empty; nothing to optimize."])
+
+    def test_applies_profiles_to_repeated_instances_in_chain_order(self):
+        value = request("warm")
+        value["chain"] = default_chain(["eq", "distortion", "eq"])
+        result, _ = analyze(value)
+        self.assertEqual(result["chain_order"], ["eq-1", "distortion-1", "eq-2"])
+        eq_entries = [
+            item for item in result["parameters"] if item["effect"] == "eq"
+        ]
+        self.assertEqual(
+            [item["effect_instance_id"] for item in eq_entries[::18]],
+            ["eq-1", "eq-2"],
+        )

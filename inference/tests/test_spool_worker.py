@@ -5,7 +5,7 @@ import threading
 import time
 import unittest
 
-from semantifx_inference.chain_schema import default_chain
+from semantifx_inference.catalogue import default_chain
 from semantifx_inference.spool_worker import _write_json, process_request, run_spool
 
 

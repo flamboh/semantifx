@@ -1,7 +1,7 @@
 import math
 from typing import Any, Dict, Mapping, Optional, Sequence
 
-from .chain_schema import CHAIN_ORDERS, chain_order, instance_schema
+from .catalogue import CATALOGUE
 from .errors import SemantiFXError
 
 
@@ -89,8 +89,56 @@ def _validate_options(options: Any) -> None:
         _fail("options.random_seed must be an integer from 0 to 4294967295.", "options.random_seed")
 
 
+def _validate_chain(chain: Any) -> list[dict]:
+    if not isinstance(chain, list) or not 0 <= len(chain) <= 8:
+        _fail("chain must contain between 0 and 8 effect instances.", "chain")
+    seen = set()
+    for index, item in enumerate(chain):
+        location = "chain[%d]" % index
+        if not isinstance(item, dict):
+            _fail("%s must be an object." % location, location)
+        _check_unknown_fields(item, _CHAIN_FIELDS, location)
+        instance_id = item.get("instance_id")
+        if not isinstance(instance_id, str) or not instance_id or len(instance_id) > 64:
+            _fail(
+                "%s.instance_id must be a non-empty string of at most 64 characters."
+                % location,
+                location + ".instance_id",
+            )
+        if instance_id in seen:
+            _fail("chain contains duplicate instance_id %r." % instance_id, "chain")
+        seen.add(instance_id)
+
+        effect_type = item.get("effect_type")
+        if not isinstance(effect_type, str) or effect_type not in CATALOGUE:
+            _fail(
+                "%s.effect_type must name an effect type in the catalogue." % location,
+                location + ".effect_type",
+            )
+        definition = CATALOGUE[effect_type]
+        parameters = item.get("parameters")
+        if not isinstance(parameters, dict):
+            _fail("%s.parameters must be an object." % location, location + ".parameters")
+        expected_names = {spec.name for spec in definition.specs}
+        if set(parameters) != expected_names:
+            _fail(
+                "%s.parameters must contain the complete parameter set for %s."
+                % (location, effect_type),
+                location + ".parameters",
+            )
+        for spec in definition.specs:
+            parameter = parameters[spec.name]
+            if not _is_number(parameter) or not spec.minimum <= parameter <= spec.maximum:
+                _fail(
+                    "%s.parameters.%s must be between %s and %s."
+                    % (location, spec.name, spec.minimum, spec.maximum),
+                    "%s.parameters.%s" % (location, spec.name),
+                )
+    return chain
+
+
 def validate_request(value: Any) -> Dict[str, Any]:
-    """Validate and return the fixed-chain request without mutating it."""
+    """Validate an analyze request without mutating it."""
     if not isinstance(value, dict):
         _fail("Request must be a JSON object.")
     _check_unknown_fields(value, _REQUEST_FIELDS, "request")
@@ -114,36 +162,7 @@ def validate_request(value: Any) -> Dict[str, Any]:
     if not isinstance(audio.get("path"), str) or not audio["path"].strip():
         _fail("audio.path must be a non-empty string.", "audio.path")
 
-    chain = value["chain"]
-    if not isinstance(chain, list) or len(chain) != 2:
-        _fail("The chain must contain exactly one EQ and one distortion.", "chain")
-    for index, item in enumerate(chain):
-        location = "chain[%d]" % index
-        if not isinstance(item, dict):
-            _fail("%s must be an object." % location, location)
-        _check_unknown_fields(item, _CHAIN_FIELDS, location)
-        instance_id = item.get("instance_id")
-        try:
-            expected_type, specs = instance_schema(instance_id)
-        except (KeyError, TypeError):
-            _fail("%s.instance_id is not a supported effect instance." % location, location + ".instance_id")
-        if item.get("effect_type") != expected_type:
-            _fail("%s.effect_type must be %r." % (location, expected_type), location + ".effect_type")
-        parameters = item.get("parameters")
-        if not isinstance(parameters, dict):
-            _fail("%s.parameters must be an object." % location, location + ".parameters")
-        if set(parameters) != {spec.name for spec in specs}:
-            _fail("%s.parameters must contain the complete fixed schema." % location, location + ".parameters")
-        for spec in specs:
-            parameter = parameters[spec.name]
-            if not _is_number(parameter) or not spec.minimum <= parameter <= spec.maximum:
-                _fail(
-                    "%s.parameters.%s must be between %s and %s."
-                    % (location, spec.name, spec.minimum, spec.maximum),
-                    "%s.parameters.%s" % (location, spec.name),
-                )
-    if chain_order(chain) not in CHAIN_ORDERS:
-        _fail("chain must contain eq-1 and distortion-1 exactly once.", "chain")
+    _validate_chain(value["chain"])
     _validate_options(value.get("options", {}))
     return value
 
@@ -152,7 +171,7 @@ def ok_result(
     request_id: str,
     backend: str,
     elapsed_ms: float,
-    effect_order: Sequence[str],
+    chain_order: Sequence[str],
     parameters: list,
     metrics: Optional[dict] = None,
     warnings: Optional[list] = None,
@@ -163,7 +182,7 @@ def ok_result(
         "status": "ok",
         "backend": backend,
         "elapsed_ms": round(elapsed_ms, 3),
-        "chain_order": list(effect_order),
+        "chain_order": list(chain_order),
         "parameters": parameters,
         "metrics": metrics or {},
         "warnings": warnings or [],

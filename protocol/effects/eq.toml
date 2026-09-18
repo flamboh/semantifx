@@ -1,11 +1,14 @@
 # Six-band parametric EQ definition. scripts/gen turns this into the protocol
 # schemas, the plugin parameter table, and the inference chain schema.
 #
-# Per-parameter fields: name (protocol identifier), display_name (host UI),
-# unit, min/max/default (physical values), and optionally step (0 = continuous)
-# and scale = "log" (host normalization skewed toward sqrt(min * max)).
-# plugin_id defaults to name when omitted.
+# Effect fields: effect_type, description (the Jev state description), and
+# order (the catalogue order). Per-parameter fields: name (protocol
+# identifier), display_name (host UI), unit, min/max/default (physical values),
+# and optionally step (0 = continuous) and scale = "log" (host normalization
+# skewed toward sqrt(min * max)).
 effect_type = "eq"
+description = "Six-band parametric equalizer with a low shelf, four peaking bands, and a high shelf. Boosts or cuts frequency ranges to shape brightness, warmth, body, presence, harshness, mud, thinness, and clarity."
+order = 0
 
 [[parameters]]
 name = "low_shelf_gain_db"

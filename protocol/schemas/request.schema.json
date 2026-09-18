@@ -1,29 +1,78 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://semantifx.local/protocol/request.schema.json",
-  "title": "SemantiFX analysis request",
+  "title": "SemantiFX protocol request",
   "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "type",
-    "request_id",
-    "prompt",
-    "audio",
-    "chain"
+  "oneOf": [
+    {
+      "$ref": "#/$defs/analyzeRequest"
+    },
+    {
+      "$ref": "#/$defs/assembleRequest"
+    }
   ],
-  "properties": {
-    "type": {
-      "const": "analyze"
+  "$defs": {
+    "analyzeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "prompt",
+        "audio",
+        "chain"
+      ],
+      "properties": {
+        "type": {
+          "const": "analyze"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "audio": {
+          "$ref": "#/$defs/audio"
+        },
+        "chain": {
+          "$ref": "#/$defs/chain"
+        },
+        "options": {
+          "$ref": "#/$defs/analyzeOptions"
+        }
+      }
     },
-    "request_id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 200
-    },
-    "prompt": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4000
+    "assembleRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "request_id",
+        "prompt"
+      ],
+      "properties": {
+        "type": {
+          "const": "assemble"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "options": {
+          "$ref": "#/$defs/assemblyOptions"
+        }
+      }
     },
     "audio": {
       "type": "object",
@@ -40,34 +89,21 @@
     },
     "chain": {
       "type": "array",
-      "minItems": 2,
-      "maxItems": 2,
-      "oneOf": [
-        {
-          "prefixItems": [
-            {
-              "$ref": "#/$defs/eqChainItem"
-            },
-            {
-              "$ref": "#/$defs/distortionChainItem"
-            }
-          ],
-          "items": false
-        },
-        {
-          "prefixItems": [
-            {
-              "$ref": "#/$defs/distortionChainItem"
-            },
-            {
-              "$ref": "#/$defs/eqChainItem"
-            }
-          ],
-          "items": false
-        }
-      ]
+      "minItems": 0,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/eqChainItem"
+          },
+          {
+            "$ref": "#/$defs/distortionChainItem"
+          }
+        ]
+      }
     },
-    "options": {
+    "analyzeOptions": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -119,9 +155,19 @@
           "maximum": 4294967295
         }
       }
-    }
-  },
-  "$defs": {
+    },
+    "assemblyOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "mock",
+            "jev"
+          ]
+        }
+      }
+    },
     "eqChainItem": {
       "type": "object",
       "additionalProperties": false,
@@ -132,7 +178,9 @@
       ],
       "properties": {
         "instance_id": {
-          "const": "eq-1"
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         },
         "effect_type": {
           "const": "eq"
@@ -268,7 +316,9 @@
       ],
       "properties": {
         "instance_id": {
-          "const": "distortion-1"
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         },
         "effect_type": {
           "const": "distortion"

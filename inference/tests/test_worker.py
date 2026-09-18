@@ -2,7 +2,7 @@ import io
 import json
 import unittest
 
-from semantifx_inference.chain_schema import default_chain
+from semantifx_inference.catalogue import default_chain
 from semantifx_inference.worker import run_stream
 
 

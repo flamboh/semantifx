@@ -8,9 +8,8 @@ import sys
 from pathlib import Path
 
 from semantifx_inference.assembly import (
-    DEFAULT_CATALOGUE,
+    CATALOGUE_DESCRIPTIONS,
     build_state,
-    optimizer_note,
     order_effects,
     order_questions,
     select_effects,
@@ -65,9 +64,9 @@ def _request(client, state: dict, questions: dict) -> dict:
 
 
 def _assemble_live(client, prompt: str, source: str) -> dict:
-    state = build_state(prompt, source, DEFAULT_CATALOGUE)
-    selection_answers = _request(client, state, selection_questions(DEFAULT_CATALOGUE))
-    selected = select_effects(selection_answers, DEFAULT_CATALOGUE)
+    state = build_state(prompt, source, CATALOGUE_DESCRIPTIONS)
+    selection_answers = _request(client, state, selection_questions(CATALOGUE_DESCRIPTIONS))
+    selected = select_effects(selection_answers, CATALOGUE_DESCRIPTIONS)
 
     order_answers = {}
     ordered = list(selected)
@@ -76,10 +75,6 @@ def _assemble_live(client, prompt: str, source: str) -> dict:
         ordered = order_effects(selected, order_answers)
 
     chain = to_chain(ordered)
-    notes = []
-    note = optimizer_note(chain)
-    if note:
-        notes.append(note)
     judgments = {"selection": selection_answers, "order": order_answers}
     _print_judgments(judgments)
     return {
@@ -87,15 +82,14 @@ def _assemble_live(client, prompt: str, source: str) -> dict:
         "order": ordered,
         "chain": chain,
         "judgments": judgments,
-        "notes": notes,
     }
 
 
 def _dry_run(prompt: str, source: str) -> None:
-    state = build_state(prompt, source, DEFAULT_CATALOGUE)
+    state = build_state(prompt, source, CATALOGUE_DESCRIPTIONS)
     print(json.dumps({
-        "selection": {"state": state, "questions": selection_questions(DEFAULT_CATALOGUE)},
-        "order": {"state": state, "questions": order_questions(list(DEFAULT_CATALOGUE))},
+        "selection": {"state": state, "questions": selection_questions(CATALOGUE_DESCRIPTIONS)},
+        "order": {"state": state, "questions": order_questions(list(CATALOGUE_DESCRIPTIONS))},
     }, indent=2))
 
 

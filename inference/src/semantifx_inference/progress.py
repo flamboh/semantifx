@@ -18,11 +18,11 @@ class ProgressFileWriter:
         self,
         destination: Path,
         request_id: Optional[str] = None,
-        effect_order: Sequence[str] = ("eq-1", "distortion-1"),
+        chain_order: Sequence[str] = (),
     ) -> None:
         self.destination = Path(destination)
         self.request_id = request_id
-        self.effect_order = list(effect_order)
+        self.chain_order = list(chain_order)
 
     def __call__(
         self,
@@ -36,7 +36,7 @@ class ProgressFileWriter:
             "phase": phase,
             "step": step,
             "total_steps": total_steps,
-            "chain_order": self.effect_order,
+            "chain_order": self.chain_order,
         }
         if self.request_id is not None:
             snapshot["request_id"] = self.request_id
@@ -49,7 +49,6 @@ class ProgressFileWriter:
             temporary.write_text(json.dumps(snapshot, separators=(",", ":")), encoding="utf-8")
             os.replace(temporary, self.destination)
         except OSError:
-            # Progress is advisory; losing it must never fail an analysis.
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:

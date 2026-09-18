@@ -2,14 +2,14 @@
 
 from itertools import combinations
 
-from .chain_schema import CHAIN
+from .catalogue import CATALOGUE, default_chain
 
 ADD_THRESHOLD = 0.4
 NO_CHANGE_THRESHOLD = 0.5
 
-DEFAULT_CATALOGUE: dict[str, str] = {
-    "eq": "Six-band parametric equalizer with a low shelf, four peaking bands, and a high shelf. Boosts or cuts frequency ranges to shape brightness, warmth, body, presence, harshness, mud, thinness, and clarity.",
-    "distortion": "Distortion with drive, character, tone, and wet/dry mix. Nonlinear waveshaping that adds harmonics for saturation, grit, warmth from soft clipping, overdrive, fuzz, and aggression.",
+CATALOGUE_DESCRIPTIONS = {
+    effect_type: definition.description
+    for effect_type, definition in CATALOGUE.items()
 }
 
 
@@ -37,8 +37,15 @@ def selection_questions(catalogue: dict[str, str]) -> dict:
 def select_effects(answers: dict, catalogue: dict[str, str]) -> list[str]:
     if answers.get("no_change", {}).get("noul", 0.0) >= NO_CHANGE_THRESHOLD:
         return []
-    probabilities = {effect_type: float(answers.get(f"use_{effect_type}", {}).get("noul", 0.0)) for effect_type in catalogue}
-    selected = [effect_type for effect_type, probability in probabilities.items() if probability >= ADD_THRESHOLD]
+    probabilities = {
+        effect_type: float(answers.get(f"use_{effect_type}", {}).get("noul", 0.0))
+        for effect_type in catalogue
+    }
+    selected = [
+        effect_type
+        for effect_type, probability in probabilities.items()
+        if probability >= ADD_THRESHOLD
+    ]
     if not selected and probabilities:
         selected = [max(catalogue, key=lambda effect_type: probabilities[effect_type])]
     return selected
@@ -49,7 +56,10 @@ def order_questions(selected: list[str]) -> dict:
         f"before_{first}_{second}": {
             "type": "noul",
             "instructions": f"To achieve `target_prompt` on `source`, should `effects.{first}` be placed before `effects.{second}` in the signal chain?",
-            "criteria": {"true": f"Place `effects.{first}` before `effects.{second}`.", "false": f"Place `effects.{second}` before `effects.{first}`."},
+            "criteria": {
+                "true": f"Place `effects.{first}` before `effects.{second}`.",
+                "false": f"Place `effects.{second}` before `effects.{first}`.",
+            },
         }
         for first, second in combinations(selected, 2)
     }
@@ -64,31 +74,14 @@ def order_effects(selected: list[str], answers: dict) -> list[str]:
         probability = float(answers.get(f"before_{first}_{second}", {}).get("noul", 0.5))
         scores[first] += probability
         scores[second] += 1.0 - probability
-    catalogue_order = {effect_type: index for index, effect_type in enumerate(selected)}
+    catalogue_order = {effect_type: index for index, effect_type in enumerate(CATALOGUE)}
+    next_order = len(catalogue_order)
+    for effect_type in selected:
+        if effect_type not in catalogue_order:
+            catalogue_order[effect_type] = next_order
+            next_order += 1
     return sorted(selected, key=lambda effect_type: (-scores[effect_type], catalogue_order[effect_type]))
 
 
 def to_chain(ordered_types: list[str]) -> list[dict]:
-    specs_by_type = {}
-    for _instance_id, effect_type, specs in CHAIN:
-        specs_by_type.setdefault(effect_type, specs)
-    counts: dict[str, int] = {}
-    chain = []
-    for effect_type in ordered_types:
-        if effect_type not in specs_by_type:
-            raise ValueError(f"Unknown effect type: {effect_type}")
-        counts[effect_type] = counts.get(effect_type, 0) + 1
-        chain.append({
-            "instance_id": f"{effect_type}-{counts[effect_type]}",
-            "effect_type": effect_type,
-            "parameters": {spec.name: spec.default for spec in specs_by_type[effect_type]},
-        })
-    return chain
-
-
-def optimizer_note(chain: list[dict]) -> str | None:
-    supported = {"eq-1", "distortion-1"}
-    instance_ids = [item["instance_id"] for item in chain]
-    if len(instance_ids) == 2 and set(instance_ids) == supported:
-        return None
-    return "The current optimizer supports exactly one eq-1 and one distortion-1 instance."
+    return default_chain(ordered_types)

@@ -32,12 +32,12 @@ class ProgressFileWriterTests(unittest.TestCase):
                     "phase": "optimizing",
                     "step": 17,
                     "total_steps": 600,
-                    "chain_order": ["eq-1", "distortion-1"],
+                    "chain_order": [],
                     "parameters": parameters,
                 },
             )
 
-    def test_publishes_reversed_effect_order(self):
+    def test_publishes_submitted_chain_order(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "progress.json"
             ProgressFileWriter(

@@ -1,90 +1,97 @@
-"""Differentiable implementation of the fixed EQ -> distortion chain."""
+"""Differentiable rendering of a validated variable effect chain."""
 
-from typing import Dict, List
+from dataclasses import dataclass
+from typing import Any, List, Mapping, Sequence
 
-import dasp_pytorch
 import torch
 
-from .chain_schema import (
-    CHAIN,
-    DISTORTION_INSTANCE_ID,
-    DISTORTION_THEN_EQ,
-    EQ_INSTANCE_ID,
-    chain_order,
-    parameter_entries,
-)
-from .distortion import process as process_distortion
+from .catalogue import CATALOGUE, EffectDefinition
 
 
-class EqDistortionChain(torch.nn.Module):
-    """Render and serialize the first SemantiFX-owned fixed chain."""
+@dataclass(frozen=True)
+class _Slot:
+    instance_id: str
+    definition: EffectDefinition
+    offset: int
+
+    @property
+    def width(self) -> int:
+        return len(self.definition.specs)
+
+
+def _layout(chain: Sequence[dict]) -> List[_Slot]:
+    slots = []
+    offset = 0
+    seen = set()
+    for index, item in enumerate(chain):
+        instance_id = item["instance_id"]
+        if instance_id in seen:
+            raise ValueError("chain[%d].instance_id is duplicated" % index)
+        seen.add(instance_id)
+        try:
+            definition = CATALOGUE[item["effect_type"]]
+        except KeyError as exc:
+            raise ValueError("chain[%d].effect_type is unknown" % index) from exc
+        slots.append(_Slot(instance_id, definition, offset))
+        offset += len(definition.specs)
+    return slots
+
+
+class VariableChain(torch.nn.Module):
+    """Render effect instances in submitted order from one flat tensor."""
 
     def __init__(self, sample_rate: float, chain: List[dict]) -> None:
         super().__init__()
         self.sample_rate = sample_rate
-        self.eq = dasp_pytorch.ParametricEQ(sample_rate=sample_rate)
-        self.distortion_first = chain_order(chain) == DISTORTION_THEN_EQ
-        self.num_params = sum(len(specs) for _instance_id, _effect_type, specs in CHAIN)
+        self.layout = _layout(chain)
+        self.num_params = sum(slot.width for slot in self.layout)
 
     @staticmethod
     def normalized_configuration(chain: List[dict], device=None) -> torch.Tensor:
-        configuration = {item["instance_id"]: item["parameters"] for item in chain}
         values = []
-        for instance_id, _effect_type, specs in CHAIN:
-            for spec in specs:
-                value = float(configuration[instance_id][spec.name])
+        for item in chain:
+            definition = CATALOGUE[item["effect_type"]]
+            for spec in definition.specs:
+                value = float(item["parameters"][spec.name])
                 values.append((value - spec.minimum) / (spec.maximum - spec.minimum))
         return torch.tensor([values], dtype=torch.float32, device=device)
 
     @staticmethod
-    def _physical(normalized: torch.Tensor, offset: int, specs) -> Dict[str, torch.Tensor]:
+    def _physical(normalized: torch.Tensor, slot: _Slot) -> Mapping[str, torch.Tensor]:
         return {
-            spec.name: spec.minimum + normalized[:, offset + index] * (spec.maximum - spec.minimum)
-            for index, spec in enumerate(specs)
+            spec.name: spec.minimum
+            + normalized[:, slot.offset + index] * (spec.maximum - spec.minimum)
+            for index, spec in enumerate(slot.definition.specs)
         }
 
-    def forward(self, signal, normalized: torch.Tensor):
+    def forward(self, signal: Any, normalized: torch.Tensor) -> Any:
+        if not self.layout:
+            return signal.clone()
         normalized = normalized.clamp(0.0, 1.0)
         output = signal.clone()
-        eq_specs = CHAIN[0][2]
-        distortion_specs = CHAIN[1][2]
-        distortion_values = self._physical(normalized, len(eq_specs), distortion_specs)
-        def apply_eq(audio):
-            return self.eq.process_normalized(audio, normalized[:, :len(eq_specs)])
-
-        def apply_distortion(audio):
-            return process_distortion(
-                audio,
-                self.sample_rate,
-                drive_db=distortion_values["drive_db"],
-                character=distortion_values["character"],
-                tone_db=distortion_values["tone_db"],
-                mix=distortion_values["mix"],
+        audio = output.audio_data
+        for slot in self.layout:
+            audio = slot.definition.render(
+                audio, self.sample_rate, self._physical(normalized, slot)
             )
-
-        if self.distortion_first:
-            output.audio_data = apply_eq(apply_distortion(output.audio_data))
-        else:
-            output.audio_data = apply_distortion(apply_eq(output.audio_data))
+        output.audio_data = audio
         return output
 
     def snapshot(self, normalized: torch.Tensor) -> List[dict]:
         normalized = normalized.detach().cpu().clamp(0.0, 1.0)
-        eq_specs = CHAIN[0][2]
-        distortion_specs = CHAIN[1][2]
-        values = {
-            EQ_INSTANCE_ID: {
-                spec.name: float(
-                    spec.minimum + normalized[0, index].item() * (spec.maximum - spec.minimum)
+        entries = []
+        for slot in self.layout:
+            for index, spec in enumerate(slot.definition.specs):
+                value = spec.minimum + normalized[0, slot.offset + index].item() * (
+                    spec.maximum - spec.minimum
                 )
-                for index, spec in enumerate(eq_specs)
-            },
-            DISTORTION_INSTANCE_ID: {
-                spec.name: float(
-                    spec.minimum
-                    + normalized[0, len(eq_specs) + index].item() * (spec.maximum - spec.minimum)
+                entries.append(
+                    {
+                        "effect_instance_id": slot.instance_id,
+                        "effect": slot.definition.effect_type,
+                        "name": spec.name,
+                        "value": float(value),
+                        "unit": spec.unit,
+                    }
                 )
-                for index, spec in enumerate(distortion_specs)
-            },
-        }
-        return parameter_entries(values)
+        return entries

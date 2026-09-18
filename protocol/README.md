@@ -1,55 +1,103 @@
 # SemantiFX inference protocol
 
 The newline-delimited JSON (JSONL) contract between an audio-effect host and
-the local inference worker. Each input line is one analysis request and each
-output line is exactly one result with the same `request_id`. The worker never
-writes logs or progress messages to stdout.
+the local inference worker. Each input line is one request and each output
+line is one result with the same `request_id`. The worker never writes logs
+or progress messages to stdout.
 
-The contract is generated from the effect definitions in
-[`effects`](effects): edit those TOML files and run `scripts/gen` to update
-the schemas in [`schemas`](schemas), the plugin parameter table, and the
-inference chain schema together. `scripts/gen --check` verifies the checked-in
-artifacts match the definitions. Request examples live in
-[`examples`](examples).
+The protocol has two request types:
 
-The contract is intentionally strict and describes exactly two effect
-instances: `eq-1` and `distortion-1`. The host may submit either order; the
-optimizer keeps that topology fixed while searching its parameters.
+- `assemble` asks the worker to choose and order effect instances for a
+  target prompt.
+- `analyze` asks the worker to optimize the parameters of a supplied chain
+  against captured audio.
 
-## Request
+Effect-specific parameter names, units, ranges, and defaults come from
+[`effects`](effects). The schemas also define the request and result
+envelopes. Run `scripts/gen --check` after changing an effect definition to
+check the generated effect artifacts.
+
+## Assemble request
+
+An assembly request contains:
+
+- `type`: `"assemble"`
+- `request_id`: a caller-generated correlation identifier
+- `prompt`: the target description
+- `options.backend`: optional `"mock"` or `"jev"`
+
+An assembly request has no audio path or chain. Assembly is a separate request
+from analysis. The worker returns an `assembly_result` containing a chain
+whose parameters start at catalogue defaults, selection and ordering
+judgments, and warnings.
+
+## Analyze request
 
 An analysis request contains:
 
 - `type`: `"analyze"`
 - `request_id`: a caller-generated correlation identifier
-- `prompt`: the musician's target description
+- `prompt`: the target description
 - `audio.path`: a path to the captured excerpt
-- `chain`: `eq-1` and `distortion-1` in the desired order, including every
-  current physical parameter value
+- `chain`: an ordered chain of zero to eight effect instances
 - `options`: optional backend and optimization settings
 
-`options.random_seed` accepts an unsigned 32-bit integer. Real adapters apply
-it after model lookup so cold and warm cached requests begin optimization from
-the same random state.
+Each chain item has an opaque, non-empty `instance_id` of at most 64
+characters, a catalogue `effect_type`, and the complete parameter object for
+that effect type.
+Instance IDs are unique within a chain. An empty chain is valid. The chain
+order is fixed for the duration of an analysis request.
 
-Unknown fields are rejected so host/worker skew fails visibly. Paths are passed
-as data and are never interpreted by a shell.
+Analysis options keep the existing `mock` and `clap` backends and the
+existing model and optimization fields. `options.random_seed` accepts an
+unsigned 32-bit integer. Real adapters apply it after model lookup so cold
+and warm cached requests begin optimization from the same random state.
 
-## Result
+Unknown fields are rejected so host/worker skew fails visibly. Paths are
+passed as data and are never interpreted by a shell.
 
-Every well-framed input produces either an `ok` result containing the submitted
-`chain_order` and exactly 22 canonically ordered, named, unit-bearing parameters,
-or an `error` result with a stable error code, actionable remediation, and
-optional details. Fatal stream errors such as invalid JSON use `request_id:
-null` because no correlation id can be trusted.
+## Results
 
-Each parameter identifies its effect instance and effect type. Partial,
-duplicate, reordered, or misidentified snapshots are rejected so a host never
-applies a suggestion to the wrong processor.
+Every well-framed request produces an `ok` or `error` result with the
+request's correlation ID. Fatal stream errors such as invalid JSON use
+`request_id: null` because no correlation ID can be trusted.
 
-## Future chain topology
+An `assembly_result` with status `"ok"` contains:
 
-Arbitrary supplied chains need repeated-effect validation, bypass state, and an
-explicit way to prove that a result belongs to the exact chain submitted. This
-remains chain optimization only; automatically choosing effect instances and
-their order is a separate future chain-assembly operation.
+- `chain`: the assembled chain in the same item shape accepted by
+  `analyze`
+- `judgments.selection`: selection probabilities by effect type
+- `judgments.no_change`: the no-change probability
+- `judgments.order`: ordering probabilities keyed by effect-type pair
+- `warnings`: a list of non-fatal messages
+
+An `analysis_result` with status `"ok"` contains:
+
+- `chain_order`: the submitted instance IDs, in signal order
+- `parameters`: named, unit-bearing parameter entries for the submitted
+  instances
+- `metrics`: backend metrics
+- `warnings`: a list of non-fatal messages
+
+The parameter list is variable length and follows `chain_order`. An empty
+chain produces empty `chain_order` and `parameters` arrays. Each entry
+identifies its instance and effect type. The worker and host use the submitted
+chain to reject incomplete, duplicate, reordered, or misidentified snapshots.
+
+An `error` result uses the same envelope and contains:
+
+- `error.code`: a stable machine-readable code
+- `error.message`: a human-readable description
+- `error.remediation`: steps the caller can take
+- `error.details`: optional structured context
+
+Assembly failures use `assembly_unavailable`; malformed requests use
+`invalid_request`.
+
+## Examples
+
+The [assemble request](examples/assemble-request.json) and its one-line
+[JSONL form](examples/assemble-request.jsonl) show the separate assembly
+request. The [analyze request](examples/analyze-request.json) and its
+[JSONL form](examples/analyze-request.jsonl) show a valid non-empty analysis
+chain.

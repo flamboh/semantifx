@@ -8,11 +8,8 @@ namespace semantifx::protocol
 {
 struct ParameterSpec
 {
-    const char* effectInstanceId;
-    const char* effectType;
     const char* name;
     const char* unit;
-    const char* pluginParameterId;
     const char* displayName;
     float minimum;
     float maximum;
@@ -21,31 +18,42 @@ struct ParameterSpec
     bool logarithmic; // host normalization skewed toward sqrt(minimum * maximum)
 };
 
-inline constexpr std::size_t eqParameterCount = 18;
-inline constexpr std::size_t distortionParameterCount = 4;
+struct EffectTypeSpec
+{
+    const char* name;
+    std::size_t firstParameter;
+    std::size_t parameterCount;
+    const char* description;
+};
 
-inline constexpr std::array<ParameterSpec, 22> chainParameterSpecs {{
-    { "eq-1", "eq", "low_shelf_gain_db", "dB", "low_shelf_gain_db", "Low Shelf Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
-    { "eq-1", "eq", "low_shelf_cutoff_freq", "Hz", "low_shelf_cutoff_freq", "Low Shelf Frequency", 20.0f, 2000.0f, 200.0f, 0.0f, true },
-    { "eq-1", "eq", "low_shelf_q_factor", "ratio", "low_shelf_q_factor", "Low Shelf Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
-    { "eq-1", "eq", "band0_gain_db", "dB", "band0_gain_db", "Low Mid Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
-    { "eq-1", "eq", "band0_cutoff_freq", "Hz", "band0_cutoff_freq", "Low Mid Frequency", 80.0f, 2000.0f, 500.0f, 0.0f, true },
-    { "eq-1", "eq", "band0_q_factor", "ratio", "band0_q_factor", "Low Mid Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
-    { "eq-1", "eq", "band1_gain_db", "dB", "band1_gain_db", "Mid Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
-    { "eq-1", "eq", "band1_cutoff_freq", "Hz", "band1_cutoff_freq", "Mid Frequency", 2000.0f, 8000.0f, 3500.0f, 0.0f, true },
-    { "eq-1", "eq", "band1_q_factor", "ratio", "band1_q_factor", "Mid Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
-    { "eq-1", "eq", "band2_gain_db", "dB", "band2_gain_db", "High Mid Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
-    { "eq-1", "eq", "band2_cutoff_freq", "Hz", "band2_cutoff_freq", "High Mid Frequency", 8000.0f, 12000.0f, 9000.0f, 0.0f, true },
-    { "eq-1", "eq", "band2_q_factor", "ratio", "band2_q_factor", "High Mid Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
-    { "eq-1", "eq", "band3_gain_db", "dB", "band3_gain_db", "Air Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
-    { "eq-1", "eq", "band3_cutoff_freq", "Hz", "band3_cutoff_freq", "Air Frequency", 12000.0f, 21050.0f, 14000.0f, 0.0f, true },
-    { "eq-1", "eq", "band3_q_factor", "ratio", "band3_q_factor", "Air Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
-    { "eq-1", "eq", "high_shelf_gain_db", "dB", "high_shelf_gain_db", "High Shelf Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
-    { "eq-1", "eq", "high_shelf_cutoff_freq", "Hz", "high_shelf_cutoff_freq", "High Shelf Frequency", 4000.0f, 21050.0f, 12000.0f, 0.0f, true },
-    { "eq-1", "eq", "high_shelf_q_factor", "ratio", "high_shelf_q_factor", "High Shelf Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
-    { "distortion-1", "distortion", "drive_db", "dB", "distortion_drive_db", "Distortion Drive", 0.0f, 48.0f, 0.0f, 0.1f, false },
-    { "distortion-1", "distortion", "character", "ratio", "distortion_character", "Distortion Character", 0.0f, 1.0f, 0.5f, 0.001f, false },
-    { "distortion-1", "distortion", "tone_db", "dB", "distortion_tone_db", "Distortion Tone", -12.0f, 12.0f, 0.0f, 0.1f, false },
-    { "distortion-1", "distortion", "mix", "ratio", "distortion_mix", "Distortion Mix", 0.0f, 1.0f, 0.25f, 0.001f, false },
+inline constexpr std::array<ParameterSpec, 22> parameters {{
+    { "low_shelf_gain_db", "dB", "Low Shelf Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
+    { "low_shelf_cutoff_freq", "Hz", "Low Shelf Frequency", 20.0f, 2000.0f, 200.0f, 0.0f, true },
+    { "low_shelf_q_factor", "ratio", "Low Shelf Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
+    { "band0_gain_db", "dB", "Low Mid Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
+    { "band0_cutoff_freq", "Hz", "Low Mid Frequency", 80.0f, 2000.0f, 500.0f, 0.0f, true },
+    { "band0_q_factor", "ratio", "Low Mid Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
+    { "band1_gain_db", "dB", "Mid Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
+    { "band1_cutoff_freq", "Hz", "Mid Frequency", 2000.0f, 8000.0f, 3500.0f, 0.0f, true },
+    { "band1_q_factor", "ratio", "Mid Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
+    { "band2_gain_db", "dB", "High Mid Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
+    { "band2_cutoff_freq", "Hz", "High Mid Frequency", 8000.0f, 12000.0f, 9000.0f, 0.0f, true },
+    { "band2_q_factor", "ratio", "High Mid Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
+    { "band3_gain_db", "dB", "Air Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
+    { "band3_cutoff_freq", "Hz", "Air Frequency", 12000.0f, 21050.0f, 14000.0f, 0.0f, true },
+    { "band3_q_factor", "ratio", "Air Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
+    { "high_shelf_gain_db", "dB", "High Shelf Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
+    { "high_shelf_cutoff_freq", "Hz", "High Shelf Frequency", 4000.0f, 21050.0f, 12000.0f, 0.0f, true },
+    { "high_shelf_q_factor", "ratio", "High Shelf Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
+    { "drive_db", "dB", "Distortion Drive", 0.0f, 48.0f, 0.0f, 0.1f, false },
+    { "character", "ratio", "Distortion Character", 0.0f, 1.0f, 0.5f, 0.001f, false },
+    { "tone_db", "dB", "Distortion Tone", -12.0f, 12.0f, 0.0f, 0.1f, false },
+    { "mix", "ratio", "Distortion Mix", 0.0f, 1.0f, 0.25f, 0.001f, false },
 }};
+
+inline constexpr std::array<EffectTypeSpec, 2> effectTypes {{
+    { "eq", 0, 18, "Six-band parametric equalizer with a low shelf, four peaking bands, and a high shelf. Boosts or cuts frequency ranges to shape brightness, warmth, body, presence, harshness, mud, thinness, and clarity." },
+    { "distortion", 18, 4, "Distortion with drive, character, tone, and wet/dry mix. Nonlinear waveshaping that adds harmonics for saturation, grit, warmth from soft clipping, overdrive, fuzz, and aggression." },
+}};
+inline constexpr int kEffectTypeCount = 2;
 } // namespace semantifx::protocol

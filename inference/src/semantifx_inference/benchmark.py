@@ -8,7 +8,7 @@ import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
-from .chain_schema import DISTORTION_THEN_EQ, EQ_THEN_DISTORTION, default_chain
+from .catalogue import default_chain
 from .errors import SemantiFXError
 from .protocol import validate_request
 from .service import analyze
@@ -17,7 +17,7 @@ from .service import analyze
 BENCHMARK_VERSION = "1"
 _MATRIX_KEYS = (
     "backend",
-    "effect_order",
+    "chain",
     "model",
     "criterion",
     "iterations",
@@ -61,6 +61,12 @@ def _require_nonempty_list(manifest: dict, name: str) -> list:
     value = manifest.get(name)
     if not isinstance(value, list) or not value:
         raise BenchmarkError("%s must be a non-empty array." % name)
+    return value
+
+
+def _chain_types(value: object) -> list[str]:
+    if not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value):
+        raise BenchmarkError("matrix.chain entries must be arrays of non-empty effect type strings.")
     return value
 
 
@@ -110,14 +116,18 @@ def load_manifest(path: Path) -> dict:
         if not isinstance(values, list) or not values:
             raise BenchmarkError("matrix.%s must be a non-empty array." % key)
     for config in expand_matrix(matrix):
-        order = DISTORTION_THEN_EQ if config.get("effect_order") == "distortion-eq" else EQ_THEN_DISTORTION
+        types = _chain_types(config["chain"]) if "chain" in config else ["eq", "distortion"]
+        try:
+            chain = default_chain(types)
+        except ValueError as exc:
+            raise BenchmarkError("Invalid matrix chain: %s" % exc) from exc
         validation_request = {
             "type": "analyze",
             "request_id": "benchmark-manifest-validation",
             "prompt": "validation",
             "audio": {"path": "validation.wav"},
-            "chain": default_chain(order),
-            "options": {key: item for key, item in config.items() if key != "effect_order"},
+            "chain": chain,
+            "options": {key: item for key, item in config.items() if key != "chain"},
         }
         try:
             validate_request(validation_request)
@@ -174,14 +184,14 @@ def _records(
         if not audio_path.is_absolute():
             audio_path = (manifest_dir / audio_path).resolve()
         request_id = "benchmark-%04d-%s-%s-r%d" % (sequence, audio["id"], prompt["id"], repetition)
-        order = DISTORTION_THEN_EQ if config.get("effect_order") == "distortion-eq" else EQ_THEN_DISTORTION
-        options = {key: item for key, item in config.items() if key != "effect_order"}
+        types = config.get("chain", ["eq", "distortion"])
+        options = {key: item for key, item in config.items() if key != "chain"}
         request = {
             "type": "analyze",
             "request_id": request_id,
             "prompt": prompt["text"],
             "audio": {"path": str(audio_path)},
-            "chain": default_chain(order),
+            "chain": default_chain(types),
             "options": options,
         }
         random_seed = _case_seed(manifest.get("seed", 0), audio["id"], prompt["id"], config)

@@ -1,8 +1,4 @@
-"""Persistent single-request worker using an atomic file spool.
-
-The file transport is deliberately private to the development plugin. The
-public inference contract remains the analyze request/result pair.
-"""
+"""Persistent single-request worker using an atomic file spool."""
 
 import argparse
 import json
@@ -46,10 +42,10 @@ def _remove_matching_stop(directory: Path, request_id: str) -> None:
 class SpoolProgress:
     """Publishes progress and turns a matching stop marker into cancellation."""
 
-    def __init__(self, directory: Path, request_id: str, effect_order) -> None:
+    def __init__(self, directory: Path, request_id: str, chain_order) -> None:
         self.directory = directory
         self.request_id = request_id
-        self.writer = ProgressFileWriter(directory / "progress.json", request_id, effect_order)
+        self.writer = ProgressFileWriter(directory / "progress.json", request_id, chain_order)
 
     def __call__(self, phase, step, total_steps, parameters=None) -> None:
         self.writer(phase, step, total_steps, parameters)
@@ -65,8 +61,8 @@ def process_request(
 ) -> None:
     request_id = request.get("request_id") if isinstance(request, dict) else None
     chain = request.get("chain", []) if isinstance(request, dict) else []
-    effect_order = [item.get("instance_id") for item in chain if isinstance(item, dict)]
-    progress = SpoolProgress(directory, request_id, effect_order) if isinstance(request_id, str) else None
+    chain_order = [item.get("instance_id") for item in chain if isinstance(item, dict)]
+    progress = SpoolProgress(directory, request_id, chain_order) if isinstance(request_id, str) else None
     try:
         if progress is not None:
             options = request.get("options", {})
