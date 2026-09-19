@@ -35,9 +35,16 @@ def _render_distortion(audio: Any, sample_rate: float, params: Mapping[str, Any]
     return render(audio, sample_rate, params)
 
 
+def _render_compressor(audio: Any, sample_rate: float, params: Mapping[str, Any]) -> Any:
+    from .effects.compressor import render
+
+    return render(audio, sample_rate, params)
+
+
 _RENDERERS = {
     "eq": _render_eq,
     "distortion": _render_distortion,
+    "compressor": _render_compressor,
 }
 
 

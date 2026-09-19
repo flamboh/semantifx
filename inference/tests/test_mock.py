@@ -59,6 +59,34 @@ class MockAdapterTests(unittest.TestCase):
         self.assertGreater(bright_values["high_shelf_gain_db"], warm_values["high_shelf_gain_db"])
 
 
+    def test_compressor_profile_updates_every_compressor_instance(self):
+        value = request("punchy and tight")
+        value["chain"] = default_chain(["compressor", "compressor"])
+        result, _ = analyze(value)
+        compressor_values = {}
+        for item in result["parameters"]:
+            if item["effect"] == "compressor":
+                compressor_values.setdefault(item["effect_instance_id"], {})[item["name"]] = item["value"]
+        self.assertEqual(
+            compressor_values,
+            {
+                "compressor-1": {
+                    "threshold_db": -30.0,
+                    "ratio": 6.0,
+                    "attack_ms": 20.0,
+                    "knee_db": 6.0,
+                    "makeup_gain_db": 0.0,
+                },
+                "compressor-2": {
+                    "threshold_db": -30.0,
+                    "ratio": 6.0,
+                    "attack_ms": 20.0,
+                    "knee_db": 6.0,
+                    "makeup_gain_db": 0.0,
+                },
+            },
+        )
+
 if __name__ == "__main__":
     unittest.main()
 

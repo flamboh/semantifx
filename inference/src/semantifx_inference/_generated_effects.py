@@ -28,4 +28,11 @@ EFFECTS = (
         ("tone_db", "dB", -12.0, 12.0, 0.0),
         ("mix", "ratio", 0.0, 1.0, 0.25),
     )),
+    ("compressor", "Dynamic range compressor with threshold, ratio, attack, soft knee, and makeup gain. Evens out level differences to add punch, tightness, sustain, glue, consistency, and perceived loudness, or to tame peaks and control dynamics.", (
+        ("threshold_db", "dB", -60.0, 0.0, -20.0),
+        ("ratio", "ratio", 1.0, 20.0, 4.0),
+        ("attack_ms", "ms", 5.0, 100.0, 20.0),
+        ("knee_db", "dB", 1.0, 12.0, 6.0),
+        ("makeup_gain_db", "dB", 0.0, 12.0, 0.0),
+    )),
 )
