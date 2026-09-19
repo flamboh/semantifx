@@ -6,7 +6,7 @@ import uuid
 
 from .catalogue import default_chain
 from .progress import ProgressFileWriter
-from .service import analyze
+from .service import handle
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,7 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--request-id", default=None)
     analyze_parser.add_argument("--iterations", type=int, default=100)
     analyze_parser.add_argument("--model", choices=("ms_clap", "laion_clap"), default="ms_clap")
-    analyze_parser.add_argument("--criterion", choices=("cosine-sim", "directional_loss", "standard"), default="cosine-sim")
+    analyze_parser.add_argument(
+        "--criterion",
+        choices=("cosine-sim", "directional_loss", "standard"),
+        default="cosine-sim",
+    )
     analyze_parser.add_argument("--learning-rate", type=float, default=0.01)
     analyze_parser.add_argument(
         "--parameter-initialization",
@@ -52,6 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write zero elapsed time so seeded result files can be compared byte-for-byte.",
     )
+
+    assemble_parser = subparsers.add_parser(
+        "assemble", help="Choose and order a default effect chain for a prompt."
+    )
+    assemble_parser.add_argument("--backend", choices=("jev", "mock"), default=None)
+    assemble_parser.add_argument("--prompt", required=True)
+    assemble_parser.add_argument("--request-id", default=None)
+    assemble_parser.add_argument("--diagnostics", action="store_true")
     return parser
 
 
@@ -68,8 +80,22 @@ def _chain_from_args(args) -> list[dict]:
     return default_chain(types)
 
 
-def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+def _run_assembly(args) -> int:
+    request = {
+        "type": "assemble",
+        "request_id": args.request_id or str(uuid.uuid4()),
+        "prompt": args.prompt,
+    }
+    if args.backend is not None:
+        request["options"] = {"backend": args.backend}
+    result, diagnostics = handle(request)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if args.diagnostics and diagnostics:
+        print(diagnostics, file=sys.stderr)
+    return 0 if result["status"] == "ok" else 1
+
+
+def _run_analysis(args) -> int:
     try:
         chain = _chain_from_args(args)
     except ValueError as exc:
@@ -107,13 +133,20 @@ def main(argv=None) -> int:
     )
     if progress is not None:
         progress("preparing", 0, args.iterations)
-    result, diagnostics = analyze(request, args.backend, progress)
+    result, diagnostics = handle(request, args.backend, progress)
     if args.deterministic_metadata:
         result["elapsed_ms"] = 0.0
     print(json.dumps(result, indent=2, ensure_ascii=False))
     if args.diagnostics and diagnostics:
         print(diagnostics, file=sys.stderr)
     return 0 if result["status"] == "ok" else 1
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.command == "assemble":
+        return _run_assembly(args)
+    return _run_analysis(args)
 
 
 if __name__ == "__main__":

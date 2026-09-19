@@ -8,7 +8,7 @@ import time
 from typing import Callable, Optional, Tuple
 
 from .progress import AnalysisCancelled, ProgressFileWriter
-from .service import analyze
+from .service import handle
 
 
 Analyzer = Callable[[object, str, Optional[Callable]], Tuple[dict, str]]
@@ -49,15 +49,18 @@ class SpoolProgress:
 
     def __call__(self, phase, step, total_steps, parameters=None) -> None:
         self.writer(phase, step, total_steps, parameters)
-        if phase != "finalizing" and _stop_requested(self.directory, self.request_id):
-            raise AnalysisCancelled()
+        if phase != "finalizing":
+            if _stop_requested(self.directory, self.request_id):
+                raise AnalysisCancelled()
+            if (self.directory / "request.json").exists():
+                raise AnalysisCancelled()
 
 
 def process_request(
     request: object,
     directory: Path,
     default_backend: str = "clap",
-    analyzer: Analyzer = analyze,
+    analyzer: Analyzer = handle,
 ) -> None:
     request_id = request.get("request_id") if isinstance(request, dict) else None
     chain = request.get("chain", []) if isinstance(request, dict) else []
@@ -85,6 +88,7 @@ def run_spool(
     directory: Path,
     default_backend: str = "clap",
     poll_seconds: float = 0.05,
+    analyzer: Analyzer = handle,
 ) -> int:
     directory.mkdir(parents=True, exist_ok=True)
     processed = 0
@@ -103,7 +107,7 @@ def run_spool(
             request_file.unlink()
         except OSError:
             pass
-        process_request(request, directory, default_backend)
+        process_request(request, directory, default_backend, analyzer)
         processed += 1
     return processed
 

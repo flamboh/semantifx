@@ -5,10 +5,11 @@ from .catalogue import CATALOGUE
 from .errors import SemantiFXError
 
 
-_REQUEST_FIELDS = {"type", "request_id", "prompt", "audio", "chain", "options"}
+_ANALYZE_REQUEST_FIELDS = {"type", "request_id", "prompt", "audio", "chain", "options"}
+_ASSEMBLE_REQUEST_FIELDS = {"type", "request_id", "prompt", "options"}
 _CHAIN_FIELDS = {"instance_id", "effect_type", "parameters"}
 _AUDIO_FIELDS = {"path"}
-_OPTION_FIELDS = {
+_ANALYZE_OPTION_FIELDS = {
     "backend",
     "model",
     "criterion",
@@ -19,6 +20,7 @@ _OPTION_FIELDS = {
     "roll_samples",
     "random_seed",
 }
+_ASSEMBLY_OPTION_FIELDS = {"backend"}
 
 
 def _fail(message: str, field: Optional[str] = None) -> None:
@@ -41,12 +43,12 @@ def _check_unknown_fields(value: Mapping[str, Any], allowed: Sequence[str], loca
         _fail("Unknown field(s) at %s: %s" % (location, ", ".join(unknown)), location)
 
 
-def _validate_options(options: Any) -> None:
+def _validate_options(options: Any, allowed_fields: set[str], backends: set[str]) -> None:
     if not isinstance(options, dict):
         _fail("options must be an object.", "options")
-    _check_unknown_fields(options, _OPTION_FIELDS, "options")
+    _check_unknown_fields(options, allowed_fields, "options")
     enums = {
-        "backend": {"mock", "clap"},
+        "backend": backends,
         "model": {"ms_clap", "laion_clap"},
         "criterion": {"cosine-sim", "directional_loss", "standard"},
         "parameter_initialization": {"current", "random"},
@@ -137,16 +139,7 @@ def _validate_chain(chain: Any) -> list[dict]:
     return chain
 
 
-def validate_request(value: Any) -> Dict[str, Any]:
-    """Validate an analyze request without mutating it."""
-    if not isinstance(value, dict):
-        _fail("Request must be a JSON object.")
-    _check_unknown_fields(value, _REQUEST_FIELDS, "request")
-    for field in ("type", "request_id", "prompt", "audio", "chain"):
-        if field not in value:
-            _fail("Missing required field: %s" % field, field)
-    if value["type"] != "analyze":
-        _fail("type must be 'analyze'.", "type")
+def _validate_request_identity(value: Mapping[str, Any]) -> None:
     for field, maximum in (("request_id", 200), ("prompt", 4000)):
         item = value[field]
         if not isinstance(item, str) or not item.strip() or len(item) > maximum:
@@ -154,6 +147,19 @@ def validate_request(value: Any) -> Dict[str, Any]:
                 "%s must be a non-empty string of at most %d characters." % (field, maximum),
                 field,
             )
+
+
+def validate_analyze_request(value: Any) -> Dict[str, Any]:
+    """Validate an analyze request without mutating it."""
+    if not isinstance(value, dict):
+        _fail("Request must be a JSON object.")
+    _check_unknown_fields(value, _ANALYZE_REQUEST_FIELDS, "request")
+    for field in ("type", "request_id", "prompt", "audio", "chain"):
+        if field not in value:
+            _fail("Missing required field: %s" % field, field)
+    if value["type"] != "analyze":
+        _fail("type must be 'analyze'.", "type")
+    _validate_request_identity(value)
 
     audio = value["audio"]
     if not isinstance(audio, dict):
@@ -163,8 +169,27 @@ def validate_request(value: Any) -> Dict[str, Any]:
         _fail("audio.path must be a non-empty string.", "audio.path")
 
     _validate_chain(value["chain"])
-    _validate_options(value.get("options", {}))
+    _validate_options(value.get("options", {}), _ANALYZE_OPTION_FIELDS, {"mock", "clap"})
     return value
+
+
+def validate_assemble_request(value: Any) -> Dict[str, Any]:
+    """Validate an assemble request without mutating it."""
+    if not isinstance(value, dict):
+        _fail("Request must be a JSON object.")
+    _check_unknown_fields(value, _ASSEMBLE_REQUEST_FIELDS, "request")
+    for field in ("type", "request_id", "prompt"):
+        if field not in value:
+            _fail("Missing required field: %s" % field, field)
+    if value["type"] != "assemble":
+        _fail("type must be 'assemble'.", "type")
+    _validate_request_identity(value)
+    _validate_options(value.get("options", {}), _ASSEMBLY_OPTION_FIELDS, {"mock", "jev"})
+    return value
+
+
+# Existing callers use this name for analyze validation.
+validate_request = validate_analyze_request
 
 
 def ok_result(
@@ -194,9 +219,10 @@ def error_result(
     request_id: Optional[str],
     backend: Optional[str],
     elapsed_ms: float,
+    result_type: str = "analysis_result",
 ) -> dict:
     return {
-        "type": "analysis_result",
+        "type": result_type,
         "request_id": request_id,
         "status": "error",
         "backend": backend,

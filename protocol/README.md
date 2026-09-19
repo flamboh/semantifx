@@ -29,7 +29,15 @@ An assembly request contains:
 An assembly request has no audio path or chain. Assembly is a separate request
 from analysis. The worker returns an `assembly_result` containing a chain
 whose parameters start at catalogue defaults, selection and ordering
-judgments, and warnings.
+judgments, and warnings. With no `options.backend`, the worker selects Jev
+when `TYPESAFE_API_KEY` is available. Otherwise the request must explicitly
+choose `"mock"`. The command-line equivalent is:
+
+```sh
+semantifx-worker <<'JSONL'
+{"type":"assemble","request_id":"assembly-demo-001","prompt":"warm and lightly saturated","options":{"backend":"mock"}}
+JSONL
+```
 
 ## Analyze request
 
@@ -98,6 +106,7 @@ Assembly failures use `assembly_unavailable`; malformed requests use
 
 The [assemble request](examples/assemble-request.json) and its one-line
 [JSONL form](examples/assemble-request.jsonl) show the separate assembly
-request. The [analyze request](examples/analyze-request.json) and its
-[JSONL form](examples/analyze-request.jsonl) show a valid non-empty analysis
-chain.
+request. The [assembly result](examples/assemble-result.json) and its
+[JSONL form](examples/assemble-result.jsonl) show the matching response.
+The [analyze request](examples/analyze-request.json) and its [JSONL form](examples/analyze-request.jsonl)
+show a valid non-empty analysis chain.

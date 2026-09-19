@@ -5,7 +5,7 @@ from typing import Iterable, TextIO
 
 from .errors import SemantiFXError
 from .protocol import error_result
-from .service import analyze
+from .service import handle
 
 
 def run_stream(
@@ -31,7 +31,7 @@ def run_stream(
             result = error_result(error, None, None, 0.0)
             diagnostics = ""
         else:
-            result, diagnostics = analyze(value, default_backend)
+            result, diagnostics = handle(value, default_backend)
         destination.write(json.dumps(result, separators=(",", ":"), ensure_ascii=False) + "\n")
         destination.flush()
         if diagnostics_stream is not None and diagnostics:

@@ -1,0 +1,54 @@
+{
+  "type": "assembly_result",
+  "request_id": "assembly-demo-001",
+  "status": "ok",
+  "backend": "mock",
+  "elapsed_ms": 0.2,
+  "chain": [
+    {
+      "instance_id": "eq-1",
+      "effect_type": "eq",
+      "parameters": {
+        "low_shelf_gain_db": 0.0,
+        "low_shelf_cutoff_freq": 200.0,
+        "low_shelf_q_factor": 0.7071,
+        "band0_gain_db": 0.0,
+        "band0_cutoff_freq": 500.0,
+        "band0_q_factor": 0.7071,
+        "band1_gain_db": 0.0,
+        "band1_cutoff_freq": 3500.0,
+        "band1_q_factor": 0.7071,
+        "band2_gain_db": 0.0,
+        "band2_cutoff_freq": 9000.0,
+        "band2_q_factor": 0.7071,
+        "band3_gain_db": 0.0,
+        "band3_cutoff_freq": 14000.0,
+        "band3_q_factor": 0.7071,
+        "high_shelf_gain_db": 0.0,
+        "high_shelf_cutoff_freq": 12000.0,
+        "high_shelf_q_factor": 0.7071
+      }
+    },
+    {
+      "instance_id": "distortion-1",
+      "effect_type": "distortion",
+      "parameters": {
+        "drive_db": 0.0,
+        "character": 0.5,
+        "tone_db": 0.0,
+        "mix": 0.25
+      }
+    }
+  ],
+  "judgments": {
+    "selection": {
+      "eq": 0.7,
+      "distortion": 0.45
+    },
+    "no_change": 0.1,
+    "order": {
+      "eq|distortion": 0.7
+    }
+  },
+  "warnings": []
+}
