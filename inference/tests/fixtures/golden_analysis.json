@@ -191,7 +191,9 @@
       "iterations": 2,
       "random_seed": 0,
       "model_cache_hit": false,
-      "model_cache_miss": true
+      "model_cache_miss": true,
+      "initial_loss": 0.6181921362876892,
+      "final_loss": 0.6133198738098145
     },
     "warnings": [
       "Distortion currently runs at the session sample rate without oversampling."

@@ -64,7 +64,9 @@ makes distortion useful.
 A persistent worker reuses each loaded CLAP model within its process. Result
 metrics report `model_cache_hit` and `model_cache_miss`; terminating the worker
 releases the model. Optional `options.random_seed` makes cold and warm
-optimization requests start from the same random state.
+optimization requests start from the same random state. Metrics also report
+`initial_loss` and `final_loss`, the CLAP criterion evaluated on the unrolled
+capture before and after optimization, so a run can be judged without listening.
 
 The development plugin uses a private atomic-file adapter around that same
 long-lived process:

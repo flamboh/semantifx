@@ -109,6 +109,23 @@ class CLAPAdapter:
                         ["this sound is not " + request["prompt"]]
                     ).detach()
 
+                def criterion_loss(embedding):
+                    if criterion == "directional_loss":
+                        return runtime.clip_directional_loss(
+                            embedding, input_embedding, target, negative_target
+                        ).mean()
+                    if criterion == "standard":
+                        return -(embedding @ target.T).mean()
+                    return (1 - runtime.torch.cosine_similarity(embedding, target, dim=-1)).mean()
+
+                def evaluate_loss(values):
+                    """Loss on the unrolled signal; lets callers see whether optimization helped."""
+                    with runtime.torch.no_grad():
+                        effected = chain(signal.clone().to(runtime.device), values)
+                        return float(criterion_loss(model.get_audio_embeddings(effected)))
+
+                initial_loss = evaluate_loss(parameters.detach())
+
                 for step in range(total_steps):
                     rolled = signal.clone()
                     roll_samples = options.get("roll_samples")
@@ -123,15 +140,7 @@ class CLAPAdapter:
 
                     effected = chain(rolled.to(runtime.device), parameters)
                     embedding = model.get_audio_embeddings(effected)
-                    if criterion == "directional_loss":
-                        batch_loss = runtime.clip_directional_loss(
-                            embedding, input_embedding, target, negative_target
-                        )
-                    elif criterion == "standard":
-                        batch_loss = -(embedding @ target.T)
-                    else:
-                        batch_loss = 1 - runtime.torch.cosine_similarity(embedding, target, dim=-1)
-                    loss = batch_loss.mean()
+                    loss = criterion_loss(embedding)
                     regularization = options.get("parameter_regularization", 0.0)
                     if regularization:
                         loss = loss + regularization * (parameters - initial).square().mean()
@@ -145,6 +154,7 @@ class CLAPAdapter:
                         self.progress("optimizing", step + 1, total_steps, chain.snapshot(parameters))
 
                 result = chain.snapshot(parameters)
+                final_loss = evaluate_loss(parameters.detach())
                 if self.progress is not None:
                     self.progress("finalizing", total_steps, total_steps, result)
         except (AnalysisCancelled, SemantiFXError):
@@ -173,6 +183,8 @@ class CLAPAdapter:
                 "criterion": options.get("criterion", "cosine-sim"),
                 "iterations": total_steps,
                 "random_seed": options.get("random_seed", 0),
+                "initial_loss": initial_loss,
+                "final_loss": final_loss,
                 "model_cache_hit": model_loader.cache_hits > cache_hits_before,
                 "model_cache_miss": model_loader.cache_misses > cache_misses_before,
             },
