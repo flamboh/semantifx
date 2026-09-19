@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/semantifx_compressor_tests.dir/tests/CompressorMathTests.cpp.o -o semantifx_compressor_tests 

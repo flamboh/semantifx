@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/semantifx_slotpool_tests.dir/tests/SlotPoolTests.cpp.o -o semantifx_slotpool_tests 

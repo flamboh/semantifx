@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/semantifx_distortion_tests.dir/tests/DistortionMathTests.cpp.o -o semantifx_distortion_tests 

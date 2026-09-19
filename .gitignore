@@ -4,6 +4,7 @@
 
 # CMake / JUCE
 build/
+plugin/build-*/
 cmake-build-*/
 *.jucer
 
@@ -24,4 +25,3 @@ __pycache__/
 web/node_modules/
 web/dist/
 !web/public/*.wav
-plugin/build-juce-src/
