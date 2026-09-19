@@ -26,7 +26,7 @@ struct EffectTypeSpec
     const char* description;
 };
 
-inline constexpr std::array<ParameterSpec, 22> parameters {{
+inline constexpr std::array<ParameterSpec, 27> parameters {{
     { "low_shelf_gain_db", "dB", "Low Shelf Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
     { "low_shelf_cutoff_freq", "Hz", "Low Shelf Frequency", 20.0f, 2000.0f, 200.0f, 0.0f, true },
     { "low_shelf_q_factor", "ratio", "Low Shelf Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
@@ -49,11 +49,17 @@ inline constexpr std::array<ParameterSpec, 22> parameters {{
     { "character", "ratio", "Distortion Character", 0.0f, 1.0f, 0.5f, 0.001f, false },
     { "tone_db", "dB", "Distortion Tone", -12.0f, 12.0f, 0.0f, 0.1f, false },
     { "mix", "ratio", "Distortion Mix", 0.0f, 1.0f, 0.25f, 0.001f, false },
+    { "threshold_db", "dB", "Compressor Threshold", -60.0f, 0.0f, -20.0f, 0.1f, false },
+    { "ratio", "ratio", "Compressor Ratio", 1.0f, 20.0f, 4.0f, 0.01f, true },
+    { "attack_ms", "ms", "Compressor Attack", 5.0f, 100.0f, 20.0f, 0.1f, true },
+    { "knee_db", "dB", "Compressor Knee", 1.0f, 12.0f, 6.0f, 0.1f, false },
+    { "makeup_gain_db", "dB", "Compressor Makeup", 0.0f, 12.0f, 0.0f, 0.1f, false },
 }};
 
-inline constexpr std::array<EffectTypeSpec, 2> effectTypes {{
+inline constexpr std::array<EffectTypeSpec, 3> effectTypes {{
     { "eq", 0, 18, "Six-band parametric equalizer with a low shelf, four peaking bands, and a high shelf. Boosts or cuts frequency ranges to shape brightness, warmth, body, presence, harshness, mud, thinness, and clarity." },
     { "distortion", 18, 4, "Distortion with drive, character, tone, and wet/dry mix. Nonlinear waveshaping that adds harmonics for saturation, grit, warmth from soft clipping, overdrive, fuzz, and aggression." },
+    { "compressor", 22, 5, "Dynamic range compressor with threshold, ratio, attack, soft knee, and makeup gain. Evens out level differences to add punch, tightness, sustain, glue, consistency, and perceived loudness, or to tame peaks and control dynamics." },
 }};
-inline constexpr int kEffectTypeCount = 2;
+inline constexpr int kEffectTypeCount = 3;
 } // namespace semantifx::protocol

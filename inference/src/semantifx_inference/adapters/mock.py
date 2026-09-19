@@ -71,6 +71,17 @@ class MockAdapter:
             if "clean" in prompt:
                 distortion["mix"] = 0.0
 
+        if any(
+            word in prompt
+            for word in ("punchy", "tight", "glued", "compressed", "controlled", "consistent", "squashed")
+        ):
+            for item in chain:
+                if item["effect_type"] != "compressor":
+                    continue
+                chain_values[item["instance_id"]].update(
+                    {"threshold_db": -30.0, "ratio": 6.0}
+                )
+
         parameters = parameter_entries(chain, chain_values)
         diagnostics = "mock profile words: %s" % (", ".join(matched) if matched else "none")
         return (
