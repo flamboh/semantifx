@@ -1,0 +1,8 @@
+sample_rate 44100
+channels 1
+samples 22050
+param threshold_db -20
+param ratio 4
+param attack_ms 20
+param knee_db 6
+param makeup_gain_db 0

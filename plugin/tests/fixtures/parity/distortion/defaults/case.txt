@@ -1,0 +1,7 @@
+sample_rate 44100
+channels 1
+samples 22050
+param drive_db 0
+param character 0.5
+param tone_db 0
+param mix 0.25

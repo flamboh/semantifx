@@ -1,0 +1,21 @@
+sample_rate 44100
+channels 1
+samples 22050
+param low_shelf_gain_db 0
+param low_shelf_cutoff_freq 1010
+param low_shelf_q_factor 3.0499999999999998
+param band0_gain_db 0
+param band0_cutoff_freq 1040
+param band0_q_factor 3.0499999999999998
+param band1_gain_db 0
+param band1_cutoff_freq 5000
+param band1_q_factor 3.0499999999999998
+param band2_gain_db 0
+param band2_cutoff_freq 10000
+param band2_q_factor 3.0499999999999998
+param band3_gain_db 0
+param band3_cutoff_freq 16525
+param band3_q_factor 3.0499999999999998
+param high_shelf_gain_db 0
+param high_shelf_cutoff_freq 12525
+param high_shelf_q_factor 3.0499999999999998

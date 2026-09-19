@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+build_dir="$repo_dir/plugin/build-dsp"
+
+cmake -S "$repo_dir/plugin" -B "$build_dir" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSEMANTIFX_DSP_ONLY=ON
+cmake --build "$build_dir" -j 4
+ctest --test-dir "$build_dir" --output-on-failure

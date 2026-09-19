@@ -27,6 +27,15 @@ Release artifacts are produced by configuring a separate build directory with
 `-DCMAKE_BUILD_TYPE=Release`. Plugin copying is deliberately disabled so local
 Audio Unit and VST3 directories are not mutated by an ordinary build.
 
+## Linux: DSP-only checks
+
+Linux does not need JUCE for the catalogue DSP checks. Run the complete
+JUCE-free build, unit tests, and Python-rendered parity fixtures with:
+
+~~~sh
+scripts/check-dsp
+~~~
+
 ## Parameters
 
 - Low and high shelf gain, frequency, and Q

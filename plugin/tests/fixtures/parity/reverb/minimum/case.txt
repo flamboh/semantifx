@@ -1,0 +1,6 @@
+sample_rate 44100
+channels 1
+samples 22050
+param decay 0
+param damping 0
+param mix 0
