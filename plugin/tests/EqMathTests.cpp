@@ -1,7 +1,9 @@
 #include "EqMath.h"
+#include "dsp/EqEffect.h"
 #include "EqGraphMath.h"
 
 #include <cassert>
+#include <array>
 #include <cmath>
 #include <iostream>
 
@@ -54,4 +56,14 @@ int main()
     assert (std::abs (combinedMagnitudeDb (graphBands, 1000.0, sampleRate) - 6.0) < 0.01);
 
     std::cout << "All Semantifx EQ math tests passed\n";
+    {
+        semantifx::dsp::EqEffect effect;
+        effect.prepare (48000.0, 32);
+        std::array<float, 32> block;
+        block.fill (1.0f);
+        float* channels[] { block.data() };
+        effect.process (channels, 1, static_cast<int> (block.size()));
+        for (const auto sample : block)
+            assert (std::isfinite (sample));
+    }
 }

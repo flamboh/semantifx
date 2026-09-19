@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dsp/DenormalGuard.h"
 #include "dsp/ReverbEffect.h"
 
 #include <juce_dsp/juce_dsp.h>
@@ -52,6 +53,7 @@ public:
 
     void process (float* const* channels, int numChannels, int numSamples) override
     {
+        semantifx::dsp::DenormalGuard denormalGuard;
         const auto channelCount = std::clamp (std::min (numChannels, configuredChannels),
                                               0, reverb::kNumChannels);
         if (channels == nullptr || channelCount == 0 || numSamples <= 0)

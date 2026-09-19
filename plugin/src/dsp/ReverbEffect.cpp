@@ -1,5 +1,8 @@
 #include "ReverbEffect.h"
 
+#include "DenormalGuard.h"
+#include "EffectDefaults.h"
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -19,18 +22,26 @@ void DirectConvolver::prepare (double, int, int numChannels)
 
 void DirectConvolver::setImpulseResponse (const float* const* irChannels, int irLength)
 {
-    impulseLength = std::max (irLength, 0);
+    const auto nextImpulseLength = std::max (irLength, 0);
     for (int channel = 0; channel < reverb::kNumChannels; ++channel)
     {
         auto& destination = impulse[static_cast<size_t> (channel)];
-        if (impulseLength == 0 || irChannels == nullptr || irChannels[channel] == nullptr)
+        if (nextImpulseLength == 0 || irChannels == nullptr || irChannels[channel] == nullptr)
             destination.clear();
         else
-            destination.assign (irChannels[channel], irChannels[channel] + impulseLength);
+            destination.assign (irChannels[channel], irChannels[channel] + nextImpulseLength);
     }
-    for (auto& channel : history)
-        channel.assign (static_cast<size_t> (impulseLength), 0.0f);
-    writePosition = 0;
+
+    if (nextImpulseLength != impulseLength)
+    {
+        impulseLength = nextImpulseLength;
+        for (auto& channel : history)
+            channel.resize (static_cast<size_t> (impulseLength), 0.0f);
+        if (impulseLength == 0)
+            writePosition = 0;
+        else
+            writePosition %= static_cast<size_t> (impulseLength);
+    }
 }
 
 void DirectConvolver::reset()
@@ -42,9 +53,10 @@ void DirectConvolver::reset()
 
 void DirectConvolver::process (float* const* channels, int numChannels, int numSamples)
 {
+    DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (std::min (numChannels, configuredChannels),
                                           0, reverb::kNumChannels);
-    if (channelCount == 0 || numSamples <= 0 || impulseLength == 0)
+    if (channels == nullptr || channelCount == 0 || numSamples <= 0 || impulseLength == 0)
         return;
 
     // This is intentionally a direct, time-domain convolver. It has O(N*L) cost and is
@@ -93,7 +105,7 @@ ReverbEffect::ReverbEffect (std::unique_ptr<Convolver> nextConvolver, const char
 {
     if (convolver == nullptr)
         convolver = std::make_unique<DirectConvolver>();
-    targets = { 0.5f, 0.3f, 0.3f };
+    targets = defaultsFor<parameters> ("reverb");
     current = targets;
     for (size_t index = 0; index < targets.size(); ++index)
         targetValues[index].store (targets[index], std::memory_order_relaxed);
@@ -124,7 +136,7 @@ bool ReverbEffect::loadNoiseTable (const char* path)
 
     noise = std::move (loaded);
     hasNoiseTable = true;
-    targetGeneration.fetch_add (1, std::memory_order_acq_rel);
+    hasBuiltMacros.store (false, std::memory_order_release);
     dirty.store (true, std::memory_order_release);
     return true;
 }
@@ -140,6 +152,7 @@ void ReverbEffect::prepare (double newSampleRate, int newMaxBlockSize)
     for (auto& channel : dry)
         channel.assign (static_cast<size_t> (maxBlockSize), 0.0f);
     impulseReady.store (false, std::memory_order_release);
+    hasBuiltMacros.store (false, std::memory_order_release);
     dirty.store (hasNoiseTable, std::memory_order_release);
     reset();
 }
@@ -151,14 +164,17 @@ void ReverbEffect::reset()
 
 void ReverbEffect::setTargets (const float* values)
 {
+    targetValues[0].store (values[0], std::memory_order_release);
+    targetValues[1].store (values[1], std::memory_order_release);
+    targetValues[2].store (values[2], std::memory_order_release);
     for (size_t index = 0; index < targets.size(); ++index)
-    {
         targets[index] = values[index];
-        targetValues[index].store (values[index], std::memory_order_release);
-    }
-    current[2] = values[2];
-    targetGeneration.fetch_add (1, std::memory_order_acq_rel);
-    dirty.store (hasNoiseTable, std::memory_order_release);
+
+    const auto macrosBuilt = hasBuiltMacros.load (std::memory_order_acquire);
+    const auto unchangedFromBuild = macrosBuilt
+        && lastBuiltDecay.load (std::memory_order_acquire) == values[0]
+        && lastBuiltDamping.load (std::memory_order_acquire) == values[1];
+    dirty.store (hasNoiseTable && ! unchangedFromBuild, std::memory_order_release);
 }
 
 void ReverbEffect::snapSmoothers()
@@ -172,29 +188,38 @@ void ReverbEffect::rebuildImpulseResponse()
     if (! hasNoiseTable)
         return;
 
-    const auto generation = targetGeneration.load (std::memory_order_acquire);
     const auto decay = targetValues[0].load (std::memory_order_acquire);
     const auto damping = targetValues[1].load (std::memory_order_acquire);
+    if (hasBuiltMacros.load (std::memory_order_acquire)
+        && impulseReady.load (std::memory_order_acquire)
+        && lastBuiltDecay.load (std::memory_order_acquire) == decay
+        && lastBuiltDamping.load (std::memory_order_acquire) == damping)
+    {
+        dirty.store (false, std::memory_order_release);
+        return;
+    }
+
     const auto expanded = reverb::expandMacros (decay, damping);
     std::array<const float*, reverb::kNumChannels> noisePointers {
         noise[0].data(), noise[1].data() };
     std::array<std::vector<float>, reverb::kNumChannels> baseImpulse;
     reverb::buildImpulseResponse (noisePointers.data(), expanded, baseImpulse);
 
+    const auto configuredSampleRate = sampleRate.load (std::memory_order_acquire);
     const auto targetLength = std::max (1, static_cast<int> (std::lround (
-        static_cast<double> (reverb::kNumSamples) * sampleRate.load (std::memory_order_acquire)
+        static_cast<double> (reverb::kNumSamples) * configuredSampleRate
             / reverb::kSampleRate)));
     for (int channel = 0; channel < reverb::kNumChannels; ++channel)
     {
         auto& destination = impulse[static_cast<size_t> (channel)];
+        const auto& source = baseImpulse[static_cast<size_t> (channel)];
         if (targetLength == reverb::kNumSamples)
         {
-            destination = std::move (baseImpulse[static_cast<size_t> (channel)]);
+            destination = source;
             continue;
         }
 
         destination.resize (static_cast<size_t> (targetLength));
-        const auto& source = baseImpulse[static_cast<size_t> (channel)];
         for (int sample = 0; sample < targetLength; ++sample)
         {
             const auto position = targetLength == 1 ? 0.0
@@ -206,59 +231,82 @@ void ReverbEffect::rebuildImpulseResponse()
             destination[static_cast<size_t> (sample)] = source[first]
                 + fraction * (source[second] - source[first]);
         }
+
+        double originalEnergy = 0.0;
+        double resampledEnergy = 0.0;
+        for (const auto value : source)
+            originalEnergy += static_cast<double> (value) * static_cast<double> (value);
+        for (const auto value : destination)
+            resampledEnergy += static_cast<double> (value) * static_cast<double> (value);
+        // Linear interpolation treats samples as point values; this scale preserves
+        // constant time-integrated energy when the IR is represented at another rate.
+        const auto targetEnergy = originalEnergy * reverb::kSampleRate / configuredSampleRate;
+        if (resampledEnergy > 0.0 && targetEnergy > 0.0)
+        {
+            const auto scale = static_cast<float> (std::sqrt (targetEnergy / resampledEnergy));
+            for (auto& value : destination)
+                value *= scale;
+        }
     }
 
     std::array<const float*, reverb::kNumChannels> impulsePointers {
         impulse[0].data(), impulse[1].data() };
     convolver->setImpulseResponse (impulsePointers.data(), targetLength);
+    lastBuiltDecay.store (decay, std::memory_order_release);
+    lastBuiltDamping.store (damping, std::memory_order_release);
+    hasBuiltMacros.store (true, std::memory_order_release);
     impulseReady.store (true, std::memory_order_release);
-    if (targetGeneration.load (std::memory_order_acquire) == generation)
-        dirty.store (false, std::memory_order_release);
+    const auto latestDecay = targetValues[0].load (std::memory_order_acquire);
+    const auto latestDamping = targetValues[1].load (std::memory_order_acquire);
+    const auto matchesLatest = latestDecay == decay && latestDamping == damping;
+    dirty.store (hasNoiseTable && ! matchesLatest, std::memory_order_release);
 }
 
 void ReverbEffect::process (float* const* channels, int numChannels, int numSamples)
 {
+    DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (numChannels, 0, reverb::kNumChannels);
-    if (channelCount == 0 || numSamples <= 0 || maxBlockSize <= 0
+    if (channels == nullptr || channelCount == 0 || numSamples <= 0 || maxBlockSize <= 0
         || ! impulseReady.load (std::memory_order_acquire))
         return;
 
-    if (numSamples > maxBlockSize)
+    const auto blockStartMix = current[2];
+    const auto targetMix = targets[2];
+    for (int offset = 0; offset < numSamples; offset += maxBlockSize)
     {
-        for (int offset = 0; offset < numSamples; offset += maxBlockSize)
-        {
-            const auto count = std::min (maxBlockSize, numSamples - offset);
-            std::array<float*, reverb::kNumChannels> subChannels {
-                channels[0] == nullptr ? nullptr : channels[0] + offset,
-                channelCount > 1 && channels[1] != nullptr ? channels[1] + offset : nullptr };
-            process (subChannels.data(), channelCount, count);
-        }
-        return;
-    }
+        const auto count = std::min (maxBlockSize, numSamples - offset);
+        std::array<float*, reverb::kNumChannels> chunkChannels {
+            channels[0] == nullptr ? nullptr : channels[0] + offset,
+            channelCount > 1 && channels[1] != nullptr ? channels[1] + offset : nullptr };
 
-    for (int channel = 0; channel < channelCount; ++channel)
-    {
-        auto& channelDry = dry[static_cast<size_t> (channel)];
-        if (numSamples > static_cast<int> (channelDry.size()))
-            return;
-        if (channels[channel] != nullptr)
-            std::copy_n (channels[channel], numSamples, channelDry.data());
-        else
-            std::fill_n (channelDry.data(), numSamples, 0.0f);
-    }
-
-    convolver->process (channels, channelCount, numSamples);
-    const auto mix = std::clamp (current[2], 0.0f, 1.0f);
-    for (int channel = 0; channel < channelCount; ++channel)
-    {
-        if (channels[channel] == nullptr)
-            continue;
-        for (int sample = 0; sample < numSamples; ++sample)
+        for (int channel = 0; channel < channelCount; ++channel)
         {
-            const auto drySample = dry[static_cast<size_t> (channel)][static_cast<size_t> (sample)];
-            channels[channel][sample] = (1.0f - mix) * drySample
-                                      + mix * channels[channel][sample];
+            auto& channelDry = dry[static_cast<size_t> (channel)];
+            if (chunkChannels[static_cast<size_t> (channel)] != nullptr)
+                std::copy_n (chunkChannels[static_cast<size_t> (channel)], count, channelDry.data());
+            else
+                std::fill_n (channelDry.data(), count, 0.0f);
+        }
+
+        convolver->process (chunkChannels.data(), channelCount, count);
+        for (int channel = 0; channel < channelCount; ++channel)
+        {
+            auto* data = chunkChannels[static_cast<size_t> (channel)];
+            const auto& channelDry = dry[static_cast<size_t> (channel)];
+            if (data == nullptr)
+                continue;
+            for (int sample = 0; sample < count; ++sample)
+            {
+                const auto progress = static_cast<float> (offset + sample + 1)
+                                    / static_cast<float> (numSamples);
+                const auto mix = std::clamp (blockStartMix
+                                            + progress * (targetMix - blockStartMix),
+                                            0.0f, 1.0f);
+                const auto drySample = channelDry[static_cast<size_t> (sample)];
+                data[sample] = (1.0f - mix) * drySample + mix * data[sample];
+            }
         }
     }
+    current[2] = targetMix;
 }
 } // namespace semantifx::dsp

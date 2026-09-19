@@ -39,6 +39,8 @@ def make_input(sample_rate: int) -> torch.Tensor:
 
 def values_for(effect_type: str, case: str) -> dict[str, float]:
     specs = catalogue.CATALOGUE[effect_type].specs
+    if case == "stereo":
+        case = "defaults"
     if case == "defaults":
         return {spec.name: spec.default for spec in specs}
     if case == "minimum":
@@ -60,13 +62,18 @@ def values_for(effect_type: str, case: str) -> dict[str, float]:
 
 def render_case(effect_type: str, case: str, sample_rate: int) -> None:
     values = values_for(effect_type, case)
-    audio = make_input(sample_rate)
+    mono_audio = make_input(sample_rate)
+    audio = (
+        torch.cat((mono_audio, -0.5 * mono_audio), dim=1)
+        if case == "stereo"
+        else mono_audio
+    )
     params = {
         name: torch.tensor([value], dtype=torch.float32)
         for name, value in values.items()
     }
     rendered = catalogue.CATALOGUE[effect_type].render(audio, sample_rate, params)
-    rendered = rendered.detach().cpu().reshape(-1).contiguous()
+    rendered = rendered.detach().cpu()[0].transpose(0, 1).contiguous().reshape(-1)
     output = rendered.numpy().astype("<f4", copy=False)
 
     suffix = "" if sample_rate == BASE_SAMPLE_RATE else "_48k"
@@ -74,13 +81,14 @@ def render_case(effect_type: str, case: str, sample_rate: int) -> None:
         case + suffix
     )
     directory.mkdir(parents=True, exist_ok=True)
+    input_output = audio.detach().cpu()[0].transpose(0, 1).contiguous().reshape(-1)
     directory.joinpath("input.f32").write_bytes(
-        make_input(sample_rate).reshape(-1).numpy().astype("<f4", copy=False).tobytes()
+        input_output.numpy().astype("<f4", copy=False).tobytes()
     )
     directory.joinpath("expected.f32").write_bytes(output.tobytes())
     lines = [
         f"sample_rate {sample_rate}",
-        "channels 1",
+        f"channels {audio.shape[1]}",
         f"samples {audio.shape[-1]}",
     ]
     lines.extend(f"param {name} {value:.17g}" for name, value in values.items())
@@ -90,10 +98,10 @@ def render_case(effect_type: str, case: str, sample_rate: int) -> None:
 def main() -> None:
     torch.set_num_threads(1)
     cases = {
-        "eq": ("defaults", "minimum", "maximum", "mid"),
-        "distortion": ("defaults", "minimum", "maximum", "mid"),
-        "compressor": ("defaults", "minimum", "maximum", "mid"),
-        "reverb": ("defaults", "minimum", "maximum", "mid", "dry", "wet"),
+        "eq": ("defaults", "minimum", "maximum", "mid", "stereo"),
+        "distortion": ("defaults", "minimum", "maximum", "mid", "stereo"),
+        "compressor": ("defaults", "minimum", "maximum", "mid", "stereo"),
+        "reverb": ("defaults", "minimum", "maximum", "mid", "dry", "wet", "stereo"),
     }
     for effect_type, effect_cases in cases.items():
         for case in effect_cases:

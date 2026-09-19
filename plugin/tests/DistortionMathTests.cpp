@@ -1,6 +1,8 @@
 #include "DistortionMath.h"
+#include "dsp/DistortionEffect.h"
 
 #include <cassert>
+#include <array>
 #include <cmath>
 #include <iostream>
 
@@ -34,4 +36,14 @@ int main()
     assert (std::isfinite (shape (1000.0, 48.0, 1.0)));
 
     std::cout << "All Semantifx distortion-math tests passed\n";
+    {
+        semantifx::dsp::DistortionEffect effect;
+        effect.prepare (48000.0, 32);
+        std::array<float, 32> block;
+        block.fill (1.0f);
+        float* channels[] { block.data() };
+        effect.process (channels, 1, static_cast<int> (block.size()));
+        for (const auto sample : block)
+            assert (std::isfinite (sample));
+    }
 }

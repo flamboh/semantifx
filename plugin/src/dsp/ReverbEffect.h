@@ -6,7 +6,6 @@
 
 #include <array>
 #include <atomic>
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -71,11 +70,7 @@ private:
     int maxBlockSize {};
     std::array<float, parameters> targets {};
     std::array<float, parameters> current {};
-    std::array<std::atomic<float>, parameters> targetValues {
-        std::atomic<float> { 0.5f },
-        std::atomic<float> { 0.3f },
-        std::atomic<float> { 0.3f }
-    };
+    std::array<std::atomic<float>, parameters> targetValues {};
     std::array<std::vector<float>, reverb::kNumChannels> noise;
     std::array<std::vector<float>, reverb::kNumChannels> impulse;
     std::array<std::vector<float>, reverb::kNumChannels> dry;
@@ -83,6 +78,8 @@ private:
     bool hasNoiseTable {};
     std::atomic<bool> dirty { false };
     std::atomic<bool> impulseReady { false };
-    std::atomic<std::uint64_t> targetGeneration { 0 };
+    std::atomic<float> lastBuiltDecay { 0.0f };
+    std::atomic<float> lastBuiltDamping { 0.0f };
+    std::atomic<bool> hasBuiltMacros { false };
 };
 } // namespace semantifx::dsp

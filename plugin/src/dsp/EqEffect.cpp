@@ -1,9 +1,18 @@
 #include "EqEffect.h"
 
+#include "DenormalGuard.h"
+#include "EffectDefaults.h"
+
 #include <algorithm>
 
 namespace semantifx::dsp
 {
+EqEffect::EqEffect()
+{
+    targets = defaultsFor<parameters> ("eq");
+    current = targets;
+}
+
 void EqEffect::prepare (double newSampleRate, int)
 {
     sampleRate = std::max (newSampleRate, 1.0);
@@ -49,6 +58,7 @@ void EqEffect::updateCoefficients (const std::array<float, parameters>& values) 
 
 void EqEffect::process (float* const* channels, int numChannels, int numSamples)
 {
+    DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (numChannels, 0, 2);
     if (channelCount == 0 || numSamples <= 0)
         return;

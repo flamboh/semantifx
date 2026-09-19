@@ -1,10 +1,19 @@
 #include "CompressorEffect.h"
 
+#include "DenormalGuard.h"
+#include "EffectDefaults.h"
+
 #include <algorithm>
 #include <cmath>
 
 namespace semantifx::dsp
 {
+CompressorEffect::CompressorEffect()
+{
+    targets = defaultsFor<parameters> ("compressor");
+    current = targets;
+}
+
 void CompressorEffect::prepare (double newSampleRate, int)
 {
     sampleRate = std::max (newSampleRate, 1.0);
@@ -20,7 +29,7 @@ void CompressorEffect::reset()
 void CompressorEffect::setTargets (const float* values)
 {
     std::copy (values, values + parameters, targets.begin());
-    current = targets;
+    std::copy (targets.begin(), targets.begin() + (parameters - 1), current.begin());
 }
 
 void CompressorEffect::snapSmoothers()
@@ -30,6 +39,7 @@ void CompressorEffect::snapSmoothers()
 
 void CompressorEffect::process (float* const* channels, int numChannels, int numSamples)
 {
+    DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (numChannels, 0, 2);
     if (channelCount == 0 || numSamples <= 0)
         return;
@@ -38,11 +48,18 @@ void CompressorEffect::process (float* const* channels, int numChannels, int num
     const auto ratio = static_cast<double> (current[1]);
     const auto attackMs = static_cast<double> (current[2]);
     const auto kneeDb = static_cast<double> (current[3]);
-    const auto makeupGainDb = static_cast<double> (current[4]);
+    const auto blockStartMakeupGainDb = static_cast<double> (current[parameters - 1]);
     const auto alpha = compressor::attackCoefficient (sampleRate, attackMs);
+    // Threshold, ratio, knee, and attack snap per block; makeup gain is ramped.
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
+        const auto progress = static_cast<double> (sample + 1)
+                            / static_cast<double> (numSamples);
+        const auto makeupGainDb = blockStartMakeupGainDb
+                                + progress * (static_cast<double> (targets[parameters - 1])
+                                              - blockStartMakeupGainDb);
+        current[parameters - 1] = static_cast<float> (makeupGainDb);
         double sidechain = 0.0;
         for (int channel = 0; channel < channelCount; ++channel)
             if (channels[channel] != nullptr)
@@ -52,6 +69,8 @@ void CompressorEffect::process (float* const* channels, int numChannels, int num
         const auto staticDb = compressor::staticCurveDb (levelDb, thresholdDb, ratio, kneeDb);
         const auto targetGainReductionDb = staticDb - levelDb;
         gainReductionDb = (1.0 - alpha) * targetGainReductionDb + alpha * gainReductionDb;
+        if (std::abs (gainReductionDb) < 1.0e-30)
+            gainReductionDb = 0.0;
         const auto gain = std::pow (10.0, (gainReductionDb + makeupGainDb) / 20.0);
 
         for (int channel = 0; channel < channelCount; ++channel)

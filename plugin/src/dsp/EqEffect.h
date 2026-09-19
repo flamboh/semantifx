@@ -13,6 +13,8 @@ class EqEffect final : public Effect
 public:
     static constexpr int parameters = 18;
 
+    EqEffect();
+
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;
     void setTargets (const float* values) override;

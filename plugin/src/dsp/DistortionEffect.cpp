@@ -1,9 +1,18 @@
 #include "DistortionEffect.h"
 
+#include "DenormalGuard.h"
+#include "EffectDefaults.h"
+
 #include <algorithm>
 
 namespace semantifx::dsp
 {
+DistortionEffect::DistortionEffect()
+{
+    targets = defaultsFor<parameters> ("distortion");
+    current = targets;
+}
+
 void DistortionEffect::prepare (double newSampleRate, int)
 {
     sampleRate = std::max (newSampleRate, 1.0);
@@ -39,6 +48,7 @@ void DistortionEffect::updateTone (double toneDb) noexcept
 
 void DistortionEffect::process (float* const* channels, int numChannels, int numSamples)
 {
+    DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (numChannels, 0, 2);
     if (channelCount == 0 || numSamples <= 0)
         return;

@@ -14,6 +14,8 @@ class DistortionEffect final : public Effect
 public:
     static constexpr int parameters = 4;
 
+    DistortionEffect();
+
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;
     void setTargets (const float* values) override;

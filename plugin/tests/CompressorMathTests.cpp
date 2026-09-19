@@ -1,6 +1,8 @@
 #include "dsp/CompressorMath.h"
+#include "dsp/CompressorEffect.h"
 
 #include <cassert>
+#include <array>
 #include <cmath>
 #include <iostream>
 
@@ -28,4 +30,14 @@ int main()
     assert (near (attackCoefficient (48000.0, 5.0), 0.9908866779461135, 1.0e-15));
 
     std::cout << "All Semantifx compressor-math tests passed\n";
+    {
+        semantifx::dsp::CompressorEffect effect;
+        effect.prepare (48000.0, 32);
+        std::array<float, 32> block;
+        block.fill (1.0f);
+        float* channels[] { block.data() };
+        effect.process (channels, 1, static_cast<int> (block.size()));
+        for (const auto sample : block)
+            assert (std::isfinite (sample));
+    }
 }

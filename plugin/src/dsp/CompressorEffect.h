@@ -13,6 +13,8 @@ class CompressorEffect final : public Effect
 public:
     static constexpr int parameters = 5;
 
+    CompressorEffect();
+
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;
     void setTargets (const float* values) override;

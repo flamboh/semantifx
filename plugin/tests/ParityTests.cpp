@@ -81,11 +81,14 @@ Fixture readFixture (const std::filesystem::path& directory)
             throw std::runtime_error ("Unknown case.txt line: " + line);
     }
 
-    if (fixture.sampleRate <= 0 || fixture.channels != 1 || fixture.samples <= 0
+    if (fixture.sampleRate <= 0 || (fixture.channels != 1 && fixture.channels != 2)
+        || fixture.samples <= 0
         || fixture.parameters.empty())
         throw std::runtime_error ("Incomplete fixture metadata: " + directory.string());
-    fixture.input = readFloats (directory / "input.f32", static_cast<size_t> (fixture.samples));
-    fixture.expected = readFloats (directory / "expected.f32", static_cast<size_t> (fixture.samples));
+    const auto valueCount = static_cast<size_t> (fixture.samples)
+                         * static_cast<size_t> (fixture.channels);
+    fixture.input = readFloats (directory / "input.f32", valueCount);
+    fixture.expected = readFloats (directory / "expected.f32", valueCount);
     return fixture;
 }
 
@@ -111,7 +114,16 @@ std::vector<float> render (const Fixture& fixture, const std::string& noisePath,
     if (static_cast<size_t> (effect->parameterCount()) != fixture.parameters.size())
         throw std::runtime_error ("Parameter count mismatch in " + fixture.directory.string());
 
-    std::vector<float> output = fixture.input;
+    std::array<std::vector<float>, 2> channelData;
+    for (int channel = 0; channel < fixture.channels; ++channel)
+    {
+        auto& data = channelData[static_cast<size_t> (channel)];
+        data.resize (static_cast<size_t> (fixture.samples));
+        for (int sample = 0; sample < fixture.samples; ++sample)
+            data[static_cast<size_t> (sample)] = fixture.input[
+                static_cast<size_t> (sample * fixture.channels + channel)];
+    }
+
     std::vector<float> parameters;
     parameters.reserve (fixture.parameters.size());
     for (const auto& parameter : fixture.parameters)
@@ -125,9 +137,17 @@ std::vector<float> render (const Fixture& fixture, const std::string& noisePath,
     for (int offset = 0; offset < fixture.samples; offset += blockSize)
     {
         const auto count = std::min (blockSize, fixture.samples - offset);
-        float* channelPointers[] { output.data() + offset };
-        effect->process (channelPointers, fixture.channels, count);
+        std::array<float*, 2> channelPointers {
+            channelData[0].data() + offset,
+            fixture.channels > 1 ? channelData[1].data() + offset : nullptr };
+        effect->process (channelPointers.data(), fixture.channels, count);
     }
+
+    std::vector<float> output (fixture.input.size());
+    for (int sample = 0; sample < fixture.samples; ++sample)
+        for (int channel = 0; channel < fixture.channels; ++channel)
+            output[static_cast<size_t> (sample * fixture.channels + channel)]
+                = channelData[static_cast<size_t> (channel)][static_cast<size_t> (sample)];
     return output;
 }
 

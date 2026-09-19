@@ -88,11 +88,11 @@ if(NOT SEMANTIFX_DSP_ONLY)
 endif()
 
 enable_testing()
-add_executable(semantifx_eq_tests tests/EqMathTests.cpp)
+add_executable(semantifx_eq_tests tests/EqMathTests.cpp src/dsp/EqEffect.cpp)
 target_include_directories(semantifx_eq_tests PRIVATE src)
 add_test(NAME semantifx_eq_tests COMMAND semantifx_eq_tests)
 
-add_executable(semantifx_distortion_tests tests/DistortionMathTests.cpp)
+add_executable(semantifx_distortion_tests tests/DistortionMathTests.cpp src/dsp/DistortionEffect.cpp)
 target_include_directories(semantifx_distortion_tests PRIVATE src)
 add_test(NAME semantifx_distortion_tests COMMAND semantifx_distortion_tests)
 
@@ -104,13 +104,13 @@ add_executable(semantifx_slotpool_tests tests/SlotPoolTests.cpp)
 target_include_directories(semantifx_slotpool_tests PRIVATE src)
 add_test(NAME semantifx_slotpool_tests COMMAND semantifx_slotpool_tests)
 
-add_executable(semantifx_compressor_tests tests/CompressorMathTests.cpp)
+add_executable(semantifx_compressor_tests tests/CompressorMathTests.cpp src/dsp/CompressorEffect.cpp)
 target_include_directories(semantifx_compressor_tests PRIVATE src)
 add_test(NAME semantifx_compressor_tests COMMAND semantifx_compressor_tests)
 
 add_executable(semantifx_reverb_tests tests/ReverbMathTests.cpp src/dsp/ReverbEffect.cpp)
 target_include_directories(semantifx_reverb_tests PRIVATE src)
-add_test(NAME semantifx_reverb_tests COMMAND semantifx_reverb_tests)
+add_test(NAME semantifx_reverb_tests COMMAND semantifx_reverb_tests "${CMAKE_CURRENT_SOURCE_DIR}/../protocol/reverb/noise_44100.f32")
 
 add_executable(semantifx_parity_tests tests/ParityTests.cpp ${SEMANTIFX_DSP_SOURCES})
 target_include_directories(semantifx_parity_tests PRIVATE src)
@@ -120,6 +120,21 @@ add_test(
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/parity"
     "${CMAKE_CURRENT_SOURCE_DIR}/../protocol/reverb/noise_44100.f32"
 )
+
+set(SEMANTIFX_DSP_TEST_TARGETS
+  semantifx_eq_tests
+  semantifx_capture_tests
+  semantifx_slotpool_tests
+  semantifx_distortion_tests
+  semantifx_compressor_tests
+  semantifx_reverb_tests
+  semantifx_parity_tests
+)
+if(NOT MSVC)
+  foreach(test_target IN LISTS SEMANTIFX_DSP_TEST_TARGETS)
+    target_compile_options(${test_target} PRIVATE -UNDEBUG)
+  endforeach()
+endif()
 
 if(NOT SEMANTIFX_DSP_ONLY)
   add_executable(semantifx_protocol_tests
