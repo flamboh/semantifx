@@ -1,0 +1,31 @@
+# Frozen-noise reverb definition. See eq.toml for the field reference.
+effect_type = "reverb"
+description = "Reverb with decay time, tonal damping, and wet/dry mix that adds a diffuse tail after the dry sound. Creates space, ambience, depth, distance, room, hall, church, wash, and dreaminess; longer decays sound bigger and further away."
+order = 3
+
+[[parameters]]
+name = "decay"
+display_name = "Reverb Decay"
+unit = "ratio"
+min = 0.0
+max = 1.0
+default = 0.5
+step = 0.001
+
+[[parameters]]
+name = "damping"
+display_name = "Reverb Damping"
+unit = "ratio"
+min = 0.0
+max = 1.0
+default = 0.3
+step = 0.001
+
+[[parameters]]
+name = "mix"
+display_name = "Reverb Mix"
+unit = "ratio"
+min = 0.0
+max = 1.0
+default = 0.3
+step = 0.001

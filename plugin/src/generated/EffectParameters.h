@@ -26,7 +26,7 @@ struct EffectTypeSpec
     const char* description;
 };
 
-inline constexpr std::array<ParameterSpec, 27> parameters {{
+inline constexpr std::array<ParameterSpec, 30> parameters {{
     { "low_shelf_gain_db", "dB", "Low Shelf Gain", -20.0f, 20.0f, 0.0f, 0.1f, false },
     { "low_shelf_cutoff_freq", "Hz", "Low Shelf Frequency", 20.0f, 2000.0f, 200.0f, 0.0f, true },
     { "low_shelf_q_factor", "ratio", "Low Shelf Q", 0.1f, 6.0f, 0.7071f, 0.0f, true },
@@ -54,12 +54,16 @@ inline constexpr std::array<ParameterSpec, 27> parameters {{
     { "attack_ms", "ms", "Compressor Attack", 5.0f, 100.0f, 20.0f, 0.1f, true },
     { "knee_db", "dB", "Compressor Knee", 1.0f, 12.0f, 6.0f, 0.1f, false },
     { "makeup_gain_db", "dB", "Compressor Makeup", 0.0f, 12.0f, 0.0f, 0.1f, false },
+    { "decay", "ratio", "Reverb Decay", 0.0f, 1.0f, 0.5f, 0.001f, false },
+    { "damping", "ratio", "Reverb Damping", 0.0f, 1.0f, 0.3f, 0.001f, false },
+    { "mix", "ratio", "Reverb Mix", 0.0f, 1.0f, 0.3f, 0.001f, false },
 }};
 
-inline constexpr std::array<EffectTypeSpec, 3> effectTypes {{
+inline constexpr std::array<EffectTypeSpec, 4> effectTypes {{
     { "eq", 0, 18, "Six-band parametric equalizer with a low shelf, four peaking bands, and a high shelf. Boosts or cuts frequency ranges to shape brightness, warmth, body, presence, harshness, mud, thinness, and clarity." },
     { "distortion", 18, 4, "Distortion with drive, character, tone, and wet/dry mix. Nonlinear waveshaping that adds harmonics for saturation, grit, warmth from soft clipping, overdrive, fuzz, and aggression." },
     { "compressor", 22, 5, "Dynamic range compressor with threshold, ratio, attack, soft knee, and makeup gain. Evens out level differences to add punch, tightness, sustain, glue, consistency, and perceived loudness, or to tame peaks and control dynamics." },
+    { "reverb", 27, 3, "Reverb with decay time, tonal damping, and wet/dry mix that adds a diffuse tail after the dry sound. Creates space, ambience, depth, distance, room, hall, church, wash, and dreaminess; longer decays sound bigger and further away." },
 }};
-inline constexpr int kEffectTypeCount = 3;
+inline constexpr int kEffectTypeCount = 4;
 } // namespace semantifx::protocol

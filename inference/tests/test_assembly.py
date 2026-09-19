@@ -15,7 +15,10 @@ class AssemblyTests(unittest.TestCase):
     def test_selection_questions_match_catalogue_plus_no_change(self):
         questions = selection_questions(CATALOGUE_DESCRIPTIONS)
         self.assertEqual(len(questions), len(CATALOGUE_DESCRIPTIONS) + 1)
-        self.assertEqual(set(questions), {"use_eq", "use_distortion", "use_compressor", "no_change"})
+        self.assertEqual(
+            set(questions),
+            {"use_eq", "use_distortion", "use_compressor", "use_reverb", "no_change"},
+        )
 
     def test_no_change_wins(self):
         answers = {

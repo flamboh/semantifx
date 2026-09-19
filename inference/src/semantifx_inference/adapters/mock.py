@@ -82,6 +82,11 @@ class MockAdapter:
                     {"threshold_db": -30.0, "ratio": 6.0}
                 )
 
+        if any(word in prompt for word in ("spacious", "hall", "room", "ambient", "dreamy", "distant", "wash", "reverb")):
+            for item in chain:
+                if item["effect_type"] == "reverb":
+                    chain_values[item["instance_id"]].update({"mix": 0.5, "decay": 0.7})
+
         parameters = parameter_entries(chain, chain_values)
         diagnostics = "mock profile words: %s" % (", ".join(matched) if matched else "none")
         return (
