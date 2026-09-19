@@ -1,0 +1,8 @@
+semantifx_eq_tests 1 0.001604
+semantifx_distortion_tests 1 0.00179658
+semantifx_capture_tests 1 0.00187712
+semantifx_slotpool_tests 1 0.00168394
+semantifx_compressor_tests 1 0.00153117
+semantifx_reverb_tests 1 0.0116732
+semantifx_parity_tests 1 7.45988
+---

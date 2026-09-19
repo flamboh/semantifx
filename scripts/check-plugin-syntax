@@ -1,0 +1,36 @@
+#!/bin/sh
+# Syntax-only compile of the JUCE plugin sources against the pinned JUCE headers.
+# Works on Linux boxes that cannot build JUCE (no X11/FreeType): it catches type,
+# signature, and include errors, not link or runtime problems. Full builds and
+# ctest run on macOS (see plugin/README.md).
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+juce_dir=${SEMANTIFX_JUCE_DIR:-"$repo_dir/plugin/build-juce-src"}
+juce_tag=8.0.8
+
+if [ ! -d "$juce_dir/modules" ]; then
+  git clone --quiet --depth 1 --branch "$juce_tag" https://github.com/juce-framework/JUCE "$juce_dir"
+fi
+
+set -- \
+  -std=c++17 -fsyntax-only -Wall -Wextra \
+  -I "$repo_dir/plugin/src" -I "$juce_dir/modules" \
+  -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_STANDALONE_APPLICATION=0 \
+  -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DJUCE_REPORT_APP_USAGE=0 \
+  -DDEBUG=1 -D_DEBUG=1 -DJUCE_DEBUG=1 \
+  '-DJucePlugin_Name="Semantifx"' "-DSEMANTIFX_DEVELOPMENT_REPO_PATH=\"$repo_dir\""
+for module in juce_core juce_events juce_data_structures juce_graphics juce_gui_basics \
+              juce_gui_extra juce_audio_basics juce_audio_devices juce_audio_formats \
+              juce_audio_processors juce_audio_utils juce_dsp; do
+  set -- "$@" "-DJUCE_MODULE_AVAILABLE_${module}=1"
+done
+
+status=0
+for source in "$repo_dir"/plugin/src/*.cpp "$repo_dir"/plugin/tests/*.cpp; do
+  printf '%s\n' "syntax: ${source#"$repo_dir"/}"
+  if ! ${CXX:-g++} "$@" "$source"; then
+    status=1
+  fi
+done
+exit $status

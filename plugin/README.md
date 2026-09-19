@@ -81,6 +81,12 @@ This builds and runs the JUCE-free math, capture, effect parity, and slot-pool
 tests. The full plugin and processor tests must be built on macOS, where the
 JUCE GUI and audio dependencies are available.
 
+`scripts/check-plugin-syntax` goes one step further on Linux: it clones the
+pinned JUCE tag into `plugin/build-juce-src` (or uses `SEMANTIFX_JUCE_DIR`) and
+runs a header-only syntax compile of every plugin source and test with warnings
+on. It catches type, signature, and include mistakes in the JUCE code without
+building JUCE; linking and runtime behaviour still need the macOS build.
+
 The plugin uses JUCE's `dsp::Convolution` for reverb in real time. Generated
 impulse responses are built by the message-thread timer, not by the audio
 callback. The direct convolver remains available for parity tests and offline

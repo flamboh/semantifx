@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/semantifx_eq_tests.dir/tests/EqMathTests.cpp.o -o semantifx_eq_tests 
