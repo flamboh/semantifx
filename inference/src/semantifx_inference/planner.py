@@ -144,6 +144,7 @@ class JevPlanner:
         try:
             from typesafe_sdk import (
                 RetryPolicy,
+                TypeSafeAPIConnectionError,
                 TypeSafeAPIError,
                 TypeSafeAPITimeoutError,
                 TypeSafeClient,
@@ -157,18 +158,20 @@ class JevPlanner:
             ) from exc
 
         try:
+            # One SDK-level retry covers timeouts, connection failures, 408, 429,
+            # and every 5xx (including 529), with a short backoff.
             with TypeSafeClient(
                 api_key=self.api_key,
                 timeout=self.timeout_s,
-                retry=RetryPolicy(max_retries=0),
+                retry=RetryPolicy(
+                    max_retries=1,
+                    backoff_initial=0.25,
+                    backoff_max=1.0,
+                    timeout=self.timeout_s * 2 + 2.0,
+                ),
             ) as client:
                 selection_answers = self._request(
-                    client,
-                    prompt,
-                    selection_questions(CATALOGUE_DESCRIPTIONS),
-                    TypeSafeAPIError,
-                    TypeSafeAPITimeoutError,
-                    TypeSafeRateLimitError,
+                    client, prompt, selection_questions(CATALOGUE_DESCRIPTIONS)
                 )
                 selection = {
                     question_id.removeprefix("use_"): probability
@@ -179,34 +182,26 @@ class JevPlanner:
                 selected = selected_effects(selection, no_change)
                 order = {}
                 if len(selected) >= 2:
-                    order_answers = self._request(
-                        client,
-                        prompt,
-                        order_questions(selected),
-                        TypeSafeAPIError,
-                        TypeSafeAPITimeoutError,
-                        TypeSafeRateLimitError,
-                    )
+                    order_answers = self._request(client, prompt, order_questions(selected))
                     order = {
                         question_id.removeprefix("before_").replace("_", "|", 1): probability
                         for question_id, probability in order_answers.items()
                     }
         except SemantiFXError:
             raise
-        except (TypeSafeAPITimeoutError, TypeSafeRateLimitError) as exc:
+        except (TypeSafeAPITimeoutError, TypeSafeAPIConnectionError, TypeSafeRateLimitError) as exc:
             raise self._unavailable(
                 "TypeSafe Jev assembly failed after one retry.",
                 {"exception_type": type(exc).__name__},
             ) from exc
         except TypeSafeAPIError as exc:
-            if getattr(exc, "status", None) == 529:
-                raise self._unavailable(
-                    "TypeSafe Jev assembly failed after one retry.",
-                    {"status": exc.status},
-                ) from exc
+            status = getattr(exc, "status", None)
+            transient = status == 408 or (isinstance(status, int) and status >= 500)
             raise self._unavailable(
-                "TypeSafe Jev assembly request failed.",
-                {"status": getattr(exc, "status", None)},
+                "TypeSafe Jev assembly failed after one retry."
+                if transient
+                else "TypeSafe Jev assembly request failed.",
+                {"status": status},
             ) from exc
         except Exception as exc:
             raise self._unavailable(
@@ -216,35 +211,12 @@ class JevPlanner:
 
         return Judgments(selection, no_change, order)
 
-    def _request(
-        self,
-        client: Any,
-        prompt: str,
-        questions: dict,
-        api_error_type: type[BaseException],
-        timeout_error_type: type[BaseException],
-        rate_limit_error_type: type[BaseException],
-    ) -> dict[str, float]:
-        last_error = None
-        for attempt in range(2):
-            try:
-                response = client.system_one(
-                    state=build_state(prompt, CATALOGUE_DESCRIPTIONS),
-                    questions=questions,
-                )
-                return self._probabilities(response, questions)
-            except (timeout_error_type, rate_limit_error_type) as exc:
-                last_error = exc
-            except api_error_type as exc:
-                if getattr(exc, "status", None) != 529:
-                    raise
-                last_error = exc
-            if attempt == 0:
-                continue
-        raise self._unavailable(
-            "TypeSafe Jev assembly failed after one retry.",
-            {"exception_type": type(last_error).__name__ if last_error else "unknown"},
+    def _request(self, client: Any, prompt: str, questions: dict) -> dict[str, float]:
+        response = client.system_one(
+            state=build_state(prompt, CATALOGUE_DESCRIPTIONS),
+            questions=questions,
         )
+        return self._probabilities(response, questions)
 
     @staticmethod
     def _probabilities(response: Any, questions: Mapping[str, Any]) -> dict[str, float]:

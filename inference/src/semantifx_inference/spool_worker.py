@@ -74,6 +74,10 @@ def process_request(
         result, _diagnostics = analyzer(request, default_backend, progress)
         if isinstance(request_id, str) and _stop_requested(directory, request_id):
             raise AnalysisCancelled()
+        # Latest request wins: a replacement that arrived during a request with no
+        # progress callbacks (assembly) must not publish the superseded result.
+        if (directory / "request.json").exists():
+            raise AnalysisCancelled()
     except AnalysisCancelled:
         result = {
             "type": "analysis_cancelled",

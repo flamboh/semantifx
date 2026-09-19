@@ -124,6 +124,41 @@ class LatestRequestTests(unittest.TestCase):
         self.assertEqual(cancellations, ["first"])
         self.assertEqual(second["request_id"], "second")
 
+    def test_replacement_during_assembly_supersedes_the_result(self):
+        calls = []
+        saw_first = threading.Event()
+
+        def analyzer(value, backend, progress):
+            request_id = value["request_id"]
+            calls.append(request_id)
+            if request_id == "first":
+                # Assembly never calls progress, so the replacement is only seen afterwards.
+                _write_json(directory / "request.json", assemble_request("second", "bright"))
+            else:
+                saw_first.wait(2.0)  # keep the first result readable until the test has seen it
+            return ({"type": "assembly_result", "request_id": request_id, "status": "ok"}, "")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            worker = threading.Thread(
+                target=run_spool,
+                args=(directory,),
+                kwargs={"default_backend": "mock", "poll_seconds": 0.005, "analyzer": analyzer},
+            )
+            worker.start()
+            try:
+                _write_json(directory / "request.json", assemble_request("first"))
+                first = self.wait_for_result(directory, "first")
+                saw_first.set()
+                second = self.wait_for_result(directory, "second")
+            finally:
+                (directory / "shutdown").touch()
+                worker.join(timeout=2.0)
+
+        self.assertEqual(calls, ["first", "second"])
+        self.assertEqual(first["type"], "analysis_cancelled")
+        self.assertEqual(second["status"], "ok")
+
 
 if __name__ == "__main__":
     unittest.main()
