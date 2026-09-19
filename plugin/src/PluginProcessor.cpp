@@ -1,18 +1,47 @@
 #include "PluginProcessor.h"
+#include "JuceConvolver.h"
 #include "PluginEditor.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <utility>
 
 namespace semantifx
 {
+namespace
+{
+constexpr double parameterRampSeconds = 0.05;
+constexpr double globalRampSeconds = 0.02;
+
+float rawValue (const std::atomic<float>* value) noexcept
+{
+    return value == nullptr ? 0.0f : value->load (std::memory_order_relaxed);
+}
+
+bool onMessageThread() noexcept
+{
+    auto* manager = juce::MessageManager::getInstanceWithoutCreating();
+    return manager != nullptr && manager->isThisTheMessageThread();
+}
+
+juce::String durationText (double seconds)
+{
+    const auto total = std::max (0, juce::roundToInt (seconds));
+    const auto minutes = total / 60;
+    const auto remainder = total % 60;
+    return minutes > 0 ? juce::String { minutes } + "m " + juce::String { remainder } + "s"
+                       : juce::String { remainder } + "s";
+}
+} // namespace
+
 class DevelopmentAnalysisRunner final : private juce::Thread, private juce::AsyncUpdater
 {
 public:
     explicit DevelopmentAnalysisRunner (PluginProcessor& processor)
-        : Thread ("Semantifx development analysis"), owner (processor),
+        : Thread ("SemantiFX development worker"), owner (processor),
           spoolDirectory (juce::File::getSpecialLocation (juce::File::tempDirectory)
                               .getNonexistentChildFile ("semantifx-worker", {}, true))
     {
@@ -22,83 +51,148 @@ public:
     ~DevelopmentAnalysisRunner() override
     {
         signalThreadShouldExit();
+        stopRequested.store (true, std::memory_order_release);
         notify();
         const auto stopped = stopThread (3000);
         cancelPendingUpdate();
         if (stopped)
         {
-            if (terminateWorker())
-                spoolDirectory.deleteRecursively();
+            terminateWorker();
+            spoolDirectory.deleteRecursively();
         }
     }
 
-    juce::Result start (const juce::String& newPrompt, int newIterations)
+    juce::Result start (bool assemble, const juce::String& newPrompt, int newIterations)
     {
         if (isThreadRunning())
-            return juce::Result::fail ("The previous analyzer process is still shutting down.");
-        if (state.load() == DevelopmentAnalysisState::running
-            || state.load() == DevelopmentAnalysisState::applying)
-            return juce::Result::fail ("Analysis is already running.");
+            return juce::Result::fail ("The previous worker request is still shutting down.");
+        if (isBusy())
+            return juce::Result::fail ("A SemantiFX run is already active.");
         if (owner.captureBuffer.getState() != CaptureBuffer::State::ready)
-            return juce::Result::fail ("Capture ten seconds of audio before analyzing.");
+            return juce::Result::fail ("Capture ten seconds of audio before running SemantiFX.");
         if (newPrompt.trim().isEmpty())
-            return juce::Result::fail ("Enter a description before analyzing.");
+            return juce::Result::fail ("Enter a description before running SemantiFX.");
+        if (! assemble && owner.getComposition().items.empty())
+            return juce::Result::fail ("Add an effect to the chain before optimizing it.");
 
         {
             const juce::ScopedLock lock (dataLock);
             prompt = newPrompt.trim();
-            requestId = juce::Uuid {}.toString();
             iterations = std::clamp (newIterations, 1, 10000);
-            status = "Writing captured audio...";
-            pendingResult.reset();
+            operation.store (assemble ? Operation::assembling : Operation::optimizing,
+                             std::memory_order_release);
+            requestId.clear();
             progress.reset();
-            applyingPreview = false;
-            analysisStartedMs = juce::Time::getMillisecondCounterHiRes();
+            pendingProgress.reset();
+            pendingAssembly.reset();
+            pendingResult.reset();
+            status = assemble ? "Assembling chain..." : "Optimizing chain...";
+            lastAppliedDirection.clear();
+            startedMs = juce::Time::getMillisecondCounterHiRes();
             optimizationStartedMs = 0.0;
-            lastEtaUpdateMs = 0.0;
             remainingText.clear();
+            preRunSnapshot = owner.makeSnapshot();
         }
-        stopRequested.store (false);
-        acceptLatestPreview.store (false);
-        state.store (DevelopmentAnalysisState::running);
+        stopRequested.store (false, std::memory_order_release);
+        restartRequested.store (false, std::memory_order_release);
+        finishRequested.store (false, std::memory_order_release);
+        workerPoisoned.store (false, std::memory_order_release);
+        state.store (assemble ? DevelopmentAnalysisState::assembling
+                              : DevelopmentAnalysisState::running,
+                     std::memory_order_release);
         if (! startThread())
         {
-            fail ("Could not start the analysis thread.");
+            fail ("Could not start the SemantiFX worker thread.");
             return juce::Result::fail (getStatus());
         }
         return juce::Result::ok();
     }
 
-    void stop (bool useLatestPreview)
+    void stop (bool revert)
     {
-        acceptLatestPreview.store (useLatestPreview);
-        stopRequested.store (true);
-        auto expected = DevelopmentAnalysisState::running;
-        if (! state.compare_exchange_strong (expected, DevelopmentAnalysisState::cancelling))
+        const auto current = state.load (std::memory_order_acquire);
+        if (current != DevelopmentAnalysisState::assembling
+            && current != DevelopmentAnalysisState::running
+            && current != DevelopmentAnalysisState::applying)
             return;
+
+        if (revert)
+        {
+            owner.restoreSnapshot (preRunSnapshot);
+            cancelPendingUpdate();
+        }
         {
             const juce::ScopedLock lock (dataLock);
-            status = useLatestPreview ? "Stopping and keeping the latest preview..."
-                                      : "Cancelling analysis...";
+            status = revert ? "Reverted" : "Stopped";
+            pendingProgress.reset();
+            pendingAssembly.reset();
+            pendingResult.reset();
         }
+        stopRequested.store (true, std::memory_order_release);
+        state.store (DevelopmentAnalysisState::cancelling, std::memory_order_release);
         notify();
+    }
+
+    void restartImmediately()
+    {
+        const auto current = state.load (std::memory_order_acquire);
+        if (current == DevelopmentAnalysisState::applying)
+        {
+            cancelPendingUpdate();
+            {
+                const juce::ScopedLock lock (dataLock);
+                pendingProgress.reset();
+                pendingAssembly.reset();
+                pendingResult.reset();
+                operation.store (Operation::optimizing, std::memory_order_release);
+                status = "Optimizing chain...";
+            }
+            stopRequested.store (false, std::memory_order_release);
+            finishRequested.store (false, std::memory_order_release);
+            state.store (DevelopmentAnalysisState::running, std::memory_order_release);
+            if (isThreadRunning())
+            {
+                restartRequested.store (true, std::memory_order_release);
+                notify();
+            }
+            else if (! startThread())
+            {
+                fail ("Could not restart the analysis request.");
+            }
+            return;
+        }
+        if (current == DevelopmentAnalysisState::assembling
+            || current == DevelopmentAnalysisState::running)
+        {
+            restartRequested.store (true, std::memory_order_release);
+            notify();
+        }
     }
 
     void resetStatus()
     {
-        const auto current = state.load();
-        if (current == DevelopmentAnalysisState::running || current == DevelopmentAnalysisState::applying)
+        if (isBusy())
             return;
         const juce::ScopedLock lock (dataLock);
         status.clear();
-        state.store (DevelopmentAnalysisState::idle);
+        progress.reset();
+        state.store (DevelopmentAnalysisState::idle, std::memory_order_release);
     }
 
-    DevelopmentAnalysisState getState() const noexcept { return state.load(); }
     bool isBusy() const noexcept
     {
-        return isThreadRunning() || state.load() == DevelopmentAnalysisState::applying;
+        const auto current = state.load (std::memory_order_acquire);
+        return isThreadRunning() || current == DevelopmentAnalysisState::assembling
+            || current == DevelopmentAnalysisState::running
+            || current == DevelopmentAnalysisState::cancelling
+            || current == DevelopmentAnalysisState::applying;
     }
+
+    DevelopmentAnalysisState getState() const noexcept
+    {
+        return state.load (std::memory_order_acquire);
+    }
+
     juce::String getStatus() const
     {
         const juce::ScopedLock lock (dataLock);
@@ -118,96 +212,29 @@ public:
     }
 
 private:
-    static juce::String durationText (double seconds)
-    {
-        const auto total = std::max (0, juce::roundToInt (seconds));
-        const auto minutes = total / 60;
-        const auto remainder = total % 60;
-        return minutes > 0 ? juce::String { minutes } + "m " + juce::String { remainder } + "s"
-                           : juce::String { remainder } + "s";
-    }
-
-    void readProgress()
-    {
-        const auto json = progressFile().loadFileAsString();
-        if (json.trim().isEmpty())
-            return;
-
-        protocol::AnalysisProgress next;
-        if (protocol::parseAnalysisProgress (json, next).failed())
-            return;
-
-        juce::String activeRequestId;
-        std::optional<protocol::AnalysisProgress> previous;
-        {
-            const juce::ScopedLock lock (dataLock);
-            activeRequestId = requestId;
-            previous = progress;
-        }
-        if (next.requestId != activeRequestId
-            || (previous.has_value() && (next.totalSteps != previous->totalSteps
-                                         || next.step < previous->step)))
-            return;
-
-        const auto now = juce::Time::getMillisecondCounterHiRes();
-        juce::String nextStatus;
-        if (next.phase == "preparing")
-        {
-            nextStatus = "Preparing captured audio...";
-        }
-        else if (next.phase == "loading_model")
-        {
-            nextStatus = "Loading MS-CLAP model  |  " + durationText ((now - analysisStartedMs) / 1000.0)
-                       + " elapsed";
-        }
-        else if (next.phase == "optimizing")
-        {
-            if (optimizationStartedMs <= 0.0)
-                optimizationStartedMs = now;
-            const auto elapsed = (now - analysisStartedMs) / 1000.0;
-            const auto optimizationElapsed = (now - optimizationStartedMs) / 1000.0;
-            const auto remaining = next.step > 0
-                ? optimizationElapsed * static_cast<double> (next.totalSteps - next.step)
-                    / static_cast<double> (next.step)
-                : 0.0;
-            if (next.step > 0 && next.step < next.totalSteps
-                && (remainingText.isEmpty() || now - lastEtaUpdateMs >= 1000.0))
-            {
-                remainingText = durationText (remaining);
-                lastEtaUpdateMs = now;
-            }
-            nextStatus = "Optimizing chain  |  " + juce::String { next.step } + " / "
-                       + juce::String { next.totalSteps } + "  |  " + durationText (elapsed) + " elapsed";
-            if (! remainingText.isEmpty() && next.step < next.totalSteps)
-                nextStatus += "  |  ~" + remainingText + " left";
-        }
-        else if (next.phase == "finalizing")
-        {
-            nextStatus = "Finalizing result  |  " + juce::String { next.totalSteps } + " / "
-                       + juce::String { next.totalSteps };
-        }
-        else
-        {
-            nextStatus = next.phase;
-        }
-
-        const juce::ScopedLock lock (dataLock);
-        progress = std::move (next);
-        if (state.load() == DevelopmentAnalysisState::running)
-            status = std::move (nextStatus);
-    }
-
-    void fail (const juce::String& message)
-    {
-        const juce::ScopedLock lock (dataLock);
-        status = message;
-        state.store (DevelopmentAnalysisState::failed);
-    }
+    enum class Operation { assembling, optimizing };
 
     juce::File requestFile() const { return spoolDirectory.getChildFile ("request.json"); }
     juce::File progressFile() const { return spoolDirectory.getChildFile ("progress.json"); }
     juce::File resultFile() const { return spoolDirectory.getChildFile ("result.json"); }
     juce::File stopFile() const { return spoolDirectory.getChildFile ("stop.json"); }
+
+    void fail (const juce::String& message)
+    {
+        const juce::ScopedLock lock (dataLock);
+        status = message;
+        state.store (DevelopmentAnalysisState::failed, std::memory_order_release);
+    }
+
+    bool writeJsonAtomically (const juce::File& destination, const juce::var& value)
+    {
+        const auto temporary = destination.getSiblingFile (destination.getFileName() + ".tmp");
+        temporary.deleteFile();
+        if (! temporary.replaceWithText (juce::JSON::toString (value, false)))
+            return false;
+        destination.deleteFile();
+        return temporary.moveFileTo (destination);
+    }
 
     void removeRequestFiles()
     {
@@ -220,32 +247,16 @@ private:
             file.deleteFile();
     }
 
-    bool writeJsonAtomically (const juce::File& destination, const juce::var& value)
-    {
-        const auto temporary = destination.getSiblingFile (destination.getFileName() + ".tmp");
-        temporary.deleteFile();
-        if (! temporary.replaceWithText (juce::JSON::toString (value, true)))
-            return false;
-        destination.deleteFile();
-        return temporary.moveFileTo (destination);
-    }
-
     bool ensureWorker()
     {
-        if (workerPoisoned.load())
-        {
-            if (workerProcess != nullptr && workerProcess->isRunning())
-            {
-                fail ("The previous development worker could not be terminated. Reopen the plugin before shaping again.");
-                return false;
-            }
-            workerProcess.reset();
-            workerPoisoned.store (false);
-        }
         if (workerProcess != nullptr && workerProcess->isRunning())
             return true;
+        if (workerPoisoned.load (std::memory_order_acquire))
+        {
+            fail ("The previous worker could not be terminated. Reopen the plugin before trying again.");
+            return false;
+        }
 
-        workerProcess = std::make_unique<juce::ChildProcess>();
         const auto script = juce::File { juce::String { SEMANTIFX_DEVELOPMENT_REPO_PATH } }
                                 .getChildFile ("scripts").getChildFile ("worker");
         if (! script.existsAsFile())
@@ -253,13 +264,12 @@ private:
             fail ("Development worker not found at " + script.getFullPathName());
             return false;
         }
-
-        juce::StringArray arguments { script.getFullPathName(), spoolDirectory.getFullPathName() };
-        // The worker communicates through atomic spool files, so no pipe can fill and block cancellation.
+        workerProcess = std::make_unique<juce::ChildProcess>();
+        const juce::StringArray arguments { script.getFullPathName(), spoolDirectory.getFullPathName() };
         if (! workerProcess->start (arguments, 0))
         {
-            fail ("Could not launch the persistent development worker.");
             workerProcess.reset();
+            fail ("Could not launch the persistent development worker.");
             return false;
         }
         return true;
@@ -268,38 +278,82 @@ private:
     bool terminateWorker()
     {
         if (workerProcess == nullptr)
-        {
-            workerPoisoned.store (false);
             return true;
-        }
         if (workerProcess->isRunning())
         {
-            if (! workerProcess->kill() && workerProcess->isRunning())
+            if (! workerProcess->kill())
             {
-                workerPoisoned.store (true);
+                workerPoisoned.store (true, std::memory_order_release);
                 return false;
             }
             workerProcess->waitForProcessToFinish (1000);
         }
         if (workerProcess->isRunning())
         {
-            workerPoisoned.store (true);
+            workerPoisoned.store (true, std::memory_order_release);
             return false;
         }
         workerProcess.reset();
-        workerPoisoned.store (false);
         return true;
     }
 
-    bool publishRequest (const juce::File& captureFile)
+    juce::var makeAnalyzeChain() const
+    {
+        auto chain = juce::Array<juce::var> {};
+        for (const auto slot : owner.getComposition().items)
+        {
+            const auto typeIndex = slot.typeIndex;
+            const auto& type = protocol::effectTypes[static_cast<size_t> (typeIndex)];
+            auto item = juce::var { new juce::DynamicObject {} };
+            auto* itemObject = item.getDynamicObject();
+            itemObject->setProperty ("instance_id", juce::String { slots::slotName (slot) });
+            itemObject->setProperty ("effect_type", type.name);
+            auto values = juce::var { new juce::DynamicObject {} };
+            auto* valuesObject = values.getDynamicObject();
+            const auto slotIndex = slots::slotIndex (slot);
+            for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
+            {
+                const auto& spec = protocol::parameters[type.firstParameter + parameterIndex];
+                valuesObject->setProperty (spec.name,
+                    rawValue (owner.rawSlotValues[static_cast<size_t> (slotIndex)][parameterIndex]));
+            }
+            itemObject->setProperty ("parameters", values);
+            chain.add (item);
+        }
+        return chain;
+    }
+
+    bool publishAssemblyRequest()
+    {
+        juce::String localPrompt, localRequestId;
+        {
+            const juce::ScopedLock lock (dataLock);
+            localPrompt = prompt;
+            localRequestId = requestId = juce::Uuid {}.toString();
+            progress.reset();
+        }
+        auto request = juce::var { new juce::DynamicObject {} };
+        auto* object = request.getDynamicObject();
+        object->setProperty ("type", "assemble");
+        object->setProperty ("request_id", localRequestId);
+        object->setProperty ("prompt", localPrompt);
+        return writeJsonAtomically (requestFile(), request);
+    }
+
+    bool publishAnalyzeRequest (const juce::File& captureFile)
     {
         juce::String localPrompt, localRequestId;
         int localIterations {};
         {
             const juce::ScopedLock lock (dataLock);
             localPrompt = prompt;
-            localRequestId = requestId;
+            localRequestId = requestId = juce::Uuid {}.toString();
             localIterations = iterations;
+            expected = owner.expectedChain();
+            progress.reset();
+            pendingProgress.reset();
+            status = "Optimizing chain...";
+            optimizationStartedMs = juce::Time::getMillisecondCounterHiRes();
         }
 
         auto request = juce::var { new juce::DynamicObject {} };
@@ -307,41 +361,10 @@ private:
         object->setProperty ("type", "analyze");
         object->setProperty ("request_id", localRequestId);
         object->setProperty ("prompt", localPrompt);
-
         auto audio = juce::var { new juce::DynamicObject {} };
         audio.getDynamicObject()->setProperty ("path", captureFile.getFullPathName());
         object->setProperty ("audio", audio);
-        const auto chainItem = [this] (size_t firstParameter, size_t parameterCount)
-        {
-            auto item = juce::var { new juce::DynamicObject {} };
-            auto* itemObject = item.getDynamicObject();
-            itemObject->setProperty ("instance_id", protocol::chainParameterSpecs[firstParameter].effectInstanceId);
-            itemObject->setProperty ("effect_type", protocol::chainParameterSpecs[firstParameter].effectType);
-            auto parameterValues = juce::var { new juce::DynamicObject {} };
-            auto* valuesObject = parameterValues.getDynamicObject();
-            for (size_t index = firstParameter; index < firstParameter + parameterCount; ++index)
-            {
-                const auto& spec = protocol::chainParameterSpecs[index];
-                valuesObject->setProperty (spec.name,
-                    owner.parameters.getRawParameterValue (spec.pluginParameterId)->load());
-            }
-            itemObject->setProperty ("parameters", parameterValues);
-            return item;
-        };
-        const auto eq = chainItem (0, protocol::eqParameterCount);
-        const auto distortion = chainItem (protocol::eqParameterCount, protocol::distortionParameterCount);
-        juce::Array<juce::var> chain;
-        if (owner.parameters.getRawParameterValue (parameter::effectOrder)->load() >= 0.5f)
-        {
-            chain.add (distortion);
-            chain.add (eq);
-        }
-        else
-        {
-            chain.add (eq);
-            chain.add (distortion);
-        }
-        object->setProperty ("chain", chain);
+        object->setProperty ("chain", makeAnalyzeChain());
 
         auto options = juce::var { new juce::DynamicObject {} };
         auto* optionObject = options.getDynamicObject();
@@ -357,48 +380,11 @@ private:
         return writeJsonAtomically (requestFile(), request);
     }
 
-    bool publishStopRequest()
-    {
-        juce::String localRequestId;
-        {
-            const juce::ScopedLock lock (dataLock);
-            localRequestId = requestId;
-        }
-        auto value = juce::var { new juce::DynamicObject {} };
-        value.getDynamicObject()->setProperty ("request_id", localRequestId);
-        return writeJsonAtomically (stopFile(), value);
-    }
-
-    void resolveInterruption (const juce::String& activeRequestId)
-    {
-        std::optional<protocol::AnalysisProgress> latest;
-        {
-            const juce::ScopedLock lock (dataLock);
-            latest = progress;
-        }
-        if (acceptLatestPreview.load() && latest.has_value() && latest->hasParameters)
-        {
-            auto preview = latest->preview;
-            preview.requestId = activeRequestId;
-            queueApplication (std::move (preview), true, latest->step, latest->totalSteps,
-                              DevelopmentAnalysisState::cancelling);
-            return;
-        }
-
-        auto expected = DevelopmentAnalysisState::cancelling;
-        if (state.compare_exchange_strong (expected, DevelopmentAnalysisState::cancelled))
-        {
-            const juce::ScopedLock lock (dataLock);
-            status = "Analysis cancelled";
-        }
-    }
-
     bool writeCapture (const juce::File& destination)
     {
         auto stream = destination.createOutputStream();
         if (stream == nullptr)
             return false;
-
         juce::WavAudioFormat format;
         std::unique_ptr<juce::AudioFormatWriter> writer (
             format.createWriterFor (stream.get(), owner.captureBuffer.getSampleRate(),
@@ -406,26 +392,149 @@ private:
                                     24, {}, 0));
         if (writer == nullptr)
             return false;
-        stream.release(); // The writer owns and closes the stream.
-
+        stream.release();
         std::array<const float*, 2> channels {
             owner.captureBuffer.getReadPointer (0),
-            owner.captureBuffer.getNumChannels() > 1 ? owner.captureBuffer.getReadPointer (1) : nullptr
-        };
+            owner.captureBuffer.getNumChannels() > 1 ? owner.captureBuffer.getReadPointer (1) : nullptr };
         return writer->writeFromFloatArrays (channels.data(), owner.captureBuffer.getNumChannels(),
                                              owner.captureBuffer.getNumSamples());
+    }
+
+    void updateStatusFromProgress (const protocol::AnalysisProgress& next)
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes();
+        if (next.phase == "optimizing")
+        {
+            const auto elapsed = (now - startedMs) / 1000.0;
+            const auto optimizationElapsed = optimizationStartedMs > 0.0
+                ? (now - optimizationStartedMs) / 1000.0 : 0.0;
+            if (next.step > 0 && next.step < next.totalSteps)
+                remainingText = durationText (optimizationElapsed
+                    * static_cast<double> (next.totalSteps - next.step)
+                    / static_cast<double> (next.step));
+            status = "Optimizing chain | " + juce::String { next.step } + " / "
+                   + juce::String { next.totalSteps } + " | " + durationText (elapsed) + " elapsed";
+            if (! remainingText.isEmpty() && next.step < next.totalSteps)
+                status += " | ~" + remainingText;
+        }
+        else if (next.phase == "preparing")
+            status = "Preparing captured audio...";
+        else if (next.phase == "loading_model")
+            status = "Loading model | " + durationText ((now - startedMs) / 1000.0) + " elapsed";
+        else if (next.phase == "finalizing")
+            status = "Optimizing chain | " + juce::String { next.totalSteps } + " / "
+                   + juce::String { next.totalSteps };
+        else
+            status = next.phase;
+    }
+
+    void readProgress()
+    {
+        const auto json = progressFile().loadFileAsString();
+        if (json.trim().isEmpty())
+            return;
+
+        juce::var root;
+        if (juce::JSON::parse (json, root).failed())
+            return;
+        auto* object = root.getDynamicObject();
+        if (object == nullptr || ! object->getProperty ("request_id").isString())
+            return;
+
+        protocol::ExpectedChain localExpected;
+        juce::String localRequestId;
+        std::optional<protocol::AnalysisProgress> previous;
+        {
+            const juce::ScopedLock lock (dataLock);
+            localRequestId = requestId;
+            localExpected = expected;
+            previous = progress;
+        }
+        if (object->getProperty ("request_id").toString() != localRequestId)
+            return;
+
+        protocol::AnalysisProgress next;
+        if (protocol::parseAnalysisProgress (json, localExpected, next).failed())
+            return;
+        if (previous.has_value() && (next.totalSteps != previous->totalSteps || next.step < previous->step))
+            return;
+        {
+            const juce::ScopedLock lock (dataLock);
+            progress = next;
+            if (operation.load (std::memory_order_acquire) == Operation::assembling)
+                status = "Assembling chain...";
+            else
+                updateStatusFromProgress (next);
+            if (next.hasParameters)
+                pendingProgress = next;
+        }
+        if (next.hasParameters)
+            triggerAsyncUpdate();
+    }
+
+    void resolveCancellation()
+    {
+        const juce::ScopedLock lock (dataLock);
+        state.store (DevelopmentAnalysisState::cancelled, std::memory_order_release);
+        if (status != "Reverted" && status != "Stopped")
+            status = "Stopped";
+    }
+
+    static std::optional<juce::String> resultRequestId (const juce::String& json)
+    {
+        juce::var root;
+        if (juce::JSON::parse (json, root).failed())
+            return std::nullopt;
+        if (auto* object = root.getDynamicObject())
+        {
+            const auto value = object->getProperty ("request_id");
+            if (value.isString())
+                return value.toString();
+        }
+        return std::nullopt;
+    }
+
+    void queueAssembly (protocol::AssemblyResult result)
+    {
+        auto expectedState = DevelopmentAnalysisState::assembling;
+        if (! state.compare_exchange_strong (expectedState, DevelopmentAnalysisState::applying))
+            return;
+        const juce::ScopedLock lock (dataLock);
+        pendingAssembly = std::move (result);
+        status = "Applying assembled chain...";
+        triggerAsyncUpdate();
+    }
+
+    void queueResult (protocol::AnalysisResult result)
+    {
+        auto expectedState = DevelopmentAnalysisState::running;
+        if (! state.compare_exchange_strong (expectedState, DevelopmentAnalysisState::applying))
+            return;
+        const juce::ScopedLock lock (dataLock);
+        pendingResult = std::move (result);
+        status = "Applying...";
+        triggerAsyncUpdate();
+    }
+
+    void handleError (const juce::String& json, const juce::String& activeRequestId)
+    {
+        protocol::ErrorResult error;
+        if (protocol::parseErrorResult (json, error).wasOk()
+            && (error.requestId.isEmpty() || error.requestId == activeRequestId))
+        {
+            auto message = error.message;
+            if (error.code == "assembly_unavailable" && ! error.remediation.isEmpty())
+                message += "\n" + error.remediation[0];
+            fail (message);
+            return;
+        }
+        fail ("The development worker returned an invalid result.");
     }
 
     void run() override
     {
         const auto captureFile = juce::File::createTempFile ("-semantifx-capture.wav");
-        bool preserveCapture {};
-        const auto removeCapture = juce::ScopeGuard { [&]
-        {
-            if (! preserveCapture)
-                captureFile.deleteFile();
-        } };
-
+        const auto removeCapture = juce::ScopeGuard { [&] { captureFile.deleteFile(); } };
         if (! writeCapture (captureFile))
         {
             fail ("Could not write the temporary WAV capture.");
@@ -436,219 +545,219 @@ private:
         removeRequestFiles();
         if (! ensureWorker())
             return;
-        if (! publishRequest (captureFile))
+
+        const auto assembling = operation.load (std::memory_order_acquire) == Operation::assembling;
+        if ((assembling && ! publishAssemblyRequest())
+            || (! assembling && ! publishAnalyzeRequest (captureFile)))
         {
-            fail ("Could not submit the analysis request to the development worker.");
+            fail ("Could not submit the request to the development worker.");
             return;
-        }
-        {
-            const juce::ScopedLock lock (dataLock);
-            status = "Waiting for persistent CLAP worker...";
         }
 
         bool stopPublished = false;
-        double stopPublishedMs {};
-        while (! resultFile().existsAsFile())
+        double stopPublishedMs = 0.0;
+        while (! threadShouldExit())
         {
-            if (threadShouldExit())
+            if (finishRequested.exchange (false, std::memory_order_acq_rel))
                 return;
-            if (stopRequested.load() && ! stopPublished)
+            if (stopRequested.load (std::memory_order_acquire) && ! stopPublished)
             {
-                if (! publishStopRequest())
+                juce::String localRequestId;
                 {
-                    if (! terminateWorker())
-                        preserveCapture = true;
-                    fail (preserveCapture
-                              ? "Could not interrupt or terminate the development worker. Reopen the plugin before shaping again."
-                              : "Could not send the interruption request; the development worker was restarted safely.");
+                    const juce::ScopedLock lock (dataLock);
+                    localRequestId = requestId;
+                }
+                auto stop = juce::var { new juce::DynamicObject {} };
+                stop.getDynamicObject()->setProperty ("request_id", localRequestId);
+                if (! writeJsonAtomically (stopFile(), stop))
+                {
+                    fail ("Could not interrupt the development worker.");
                     return;
                 }
                 stopPublished = true;
                 stopPublishedMs = juce::Time::getMillisecondCounterHiRes();
             }
+
+            if (restartRequested.exchange (false, std::memory_order_acq_rel)
+                && ! stopRequested.load (std::memory_order_acquire))
+            {
+                operation.store (Operation::optimizing, std::memory_order_release);
+                state.store (DevelopmentAnalysisState::running, std::memory_order_release);
+                resultFile().deleteFile();
+                progressFile().deleteFile();
+                if (! publishAnalyzeRequest (captureFile))
+                {
+                    fail ("Could not restart the analysis request.");
+                    return;
+                }
+                stopPublished = false;
+            }
+
             readProgress();
-            if (stopPublished && juce::Time::getMillisecondCounterHiRes() - stopPublishedMs >= 3000.0)
+            if (resultFile().existsAsFile())
+            {
+                const auto json = resultFile().loadFileAsString();
+                resultFile().deleteFile();
+                const auto returnedId = resultRequestId (json);
+                juce::String localRequestId;
+                protocol::ExpectedChain localExpected;
+                {
+                    const juce::ScopedLock lock (dataLock);
+                    localRequestId = requestId;
+                    localExpected = expected;
+                }
+                if (! returnedId.has_value() || *returnedId != localRequestId)
+                    continue;
+
+                if (stopPublished || stopRequested.load (std::memory_order_acquire))
+                {
+                    juce::String cancelled;
+                    if (protocol::parseAnalysisCancellation (json, cancelled).wasOk()
+                        && cancelled == localRequestId)
+                    {
+                        resolveCancellation();
+                        return;
+                    }
+                    continue;
+                }
+
+                if (operation.load (std::memory_order_acquire) == Operation::assembling)
+                {
+                    protocol::AssemblyResult assembly;
+                    if (protocol::parseAssemblyResult (json, assembly).wasOk())
+                    {
+                        queueAssembly (std::move (assembly));
+                        continue;
+                    }
+                }
+                else
+                {
+                    protocol::AnalysisResult result;
+                    if (protocol::parseAnalysisResult (json, localExpected, result).wasOk())
+                    {
+                        queueResult (std::move (result));
+                        return;
+                    }
+                }
+                handleError (json, localRequestId);
+                return;
+            }
+
+            if (stopPublished
+                && juce::Time::getMillisecondCounterHiRes() - stopPublishedMs >= 3000.0)
             {
                 if (! terminateWorker())
                 {
-                    preserveCapture = true;
-                    fail ("The development worker did not stop. Reopen the plugin before shaping again.");
+                    fail ("The development worker did not stop. Reopen the plugin before trying again.");
                     return;
                 }
-                readProgress();
-                juce::String activeRequestId;
-                {
-                    const juce::ScopedLock lock (dataLock);
-                    activeRequestId = requestId;
-                }
-                resolveInterruption (activeRequestId);
+                resolveCancellation();
                 return;
             }
             if (workerProcess == nullptr || ! workerProcess->isRunning())
             {
-                workerProcess.reset();
-                fail ("The persistent development worker stopped unexpectedly. Try shaping again to restart it.");
+                fail ("The persistent development worker stopped unexpectedly.");
                 return;
             }
-            wait (100);
+            wait (50);
         }
-        readProgress();
-        if (threadShouldExit())
-            return;
-
-        auto json = resultFile().loadFileAsString();
-        if (json.trim().isEmpty())
-        {
-            fail ("Analyzer produced no protocol result.");
-            return;
-        }
-
-        juce::String activeRequestId;
-        {
-            const juce::ScopedLock lock (dataLock);
-            activeRequestId = requestId;
-        }
-
-        juce::var resultRoot;
-        if (juce::JSON::parse (json, resultRoot).wasOk())
-        {
-            if (auto* object = resultRoot.getDynamicObject())
-            {
-                const auto returnedRequestId = object->getProperty ("request_id");
-                if (returnedRequestId.isString() && returnedRequestId.toString() != activeRequestId)
-                {
-                    resultFile().deleteFile();
-                    fail ("The persistent development worker returned a stale result. Try shaping again.");
-                    return;
-                }
-            }
-        }
-
-        protocol::AnalysisResult finalResult;
-        if (protocol::parseAnalysisResult (json, finalResult).wasOk()
-            && finalResult.requestId == activeRequestId)
-        {
-            auto expected = DevelopmentAnalysisState::running;
-            if (state.compare_exchange_strong (expected, DevelopmentAnalysisState::applying))
-            {
-                queueApplication (std::move (finalResult), false, 0, 0,
-                                  DevelopmentAnalysisState::applying);
-            }
-            else if (expected == DevelopmentAnalysisState::cancelling)
-            {
-                resolveInterruption (activeRequestId);
-            }
-            return;
-        }
-
-        juce::String cancelledRequestId;
-        if (protocol::parseAnalysisCancellation (json, cancelledRequestId).wasOk()
-            && cancelledRequestId == activeRequestId)
-        {
-            resolveInterruption (activeRequestId);
-            return;
-        }
-
-        auto errorMessage = juce::String { "The development worker returned an invalid result." };
-        juce::var errorRoot;
-        if (juce::JSON::parse (json, errorRoot).wasOk())
-            if (auto* object = errorRoot.getDynamicObject())
-            {
-                const auto errorValue = object->getProperty ("error");
-                if (auto* error = errorValue.getDynamicObject())
-                    if (error->getProperty ("message").isString())
-                        errorMessage = error->getProperty ("message").toString();
-            }
-        fail (errorMessage);
-    }
-
-    void queueApplication (protocol::AnalysisResult result, bool preview, int step, int totalSteps,
-                           DevelopmentAnalysisState expectedState)
-    {
-        if (expectedState != DevelopmentAnalysisState::applying)
-        {
-            auto expected = expectedState;
-            if (! state.compare_exchange_strong (expected, DevelopmentAnalysisState::applying))
-                return;
-        }
-        {
-            const juce::ScopedLock lock (dataLock);
-            pendingResult = std::move (result);
-            applyingPreview = preview;
-            appliedPreviewStep = step;
-            appliedPreviewTotal = totalSteps;
-            status = preview ? "Applying interrupted preview..." : "Applying analysis...";
-        }
-        triggerAsyncUpdate();
     }
 
     void handleAsyncUpdate() override
     {
-        if (state.load() != DevelopmentAnalysisState::applying)
-            return;
-
+        std::optional<protocol::AnalysisProgress> nextProgress;
+        std::optional<protocol::AssemblyResult> assembly;
         std::optional<protocol::AnalysisResult> result;
-        bool preview {};
-        int previewStep {}, previewTotal {};
         {
             const juce::ScopedLock lock (dataLock);
+            nextProgress = pendingProgress;
+            pendingProgress.reset();
+            assembly = pendingAssembly;
+            pendingAssembly.reset();
             result = pendingResult;
             pendingResult.reset();
-            preview = applyingPreview;
-            previewStep = appliedPreviewStep;
-            previewTotal = appliedPreviewTotal;
         }
-        const auto applied = result.has_value() ? owner.applyAnalysisResult (*result)
-                                                : juce::Result::fail ("No analysis result was ready to apply.");
+
+        if (state.load (std::memory_order_acquire) == DevelopmentAnalysisState::running
+            && nextProgress.has_value())
         {
-            const juce::ScopedLock lock (dataLock);
-            if (applied.wasOk())
+            juce::String activeRequestId;
             {
-                lastAppliedDirection = prompt;
-                status = preview ? "Applied preview at " + juce::String { previewStep } + " / "
-                                     + juce::String { previewTotal }
-                                 : "Analysis applied";
+                const juce::ScopedLock lock (dataLock);
+                activeRequestId = requestId;
+            }
+            if (nextProgress->requestId == activeRequestId)
+                owner.applyAnalysisProgress (*nextProgress);
+        }
+
+        if (assembly.has_value()
+            && state.load (std::memory_order_acquire) == DevelopmentAnalysisState::applying)
+        {
+            const auto applied = owner.applyAssemblyResult (*assembly);
+            if (applied.failed())
+            {
+                fail (applied.getErrorMessage());
+                return;
+            }
+            if (owner.getComposition().items.empty())
+            {
+                const juce::ScopedLock lock (dataLock);
+                status = "Prompt asks for no change; chain cleared";
+                state.store (DevelopmentAnalysisState::succeeded, std::memory_order_release);
+                finishRequested.store (true, std::memory_order_release);
+                notify();
+                return;
+            }
+            operation.store (Operation::optimizing, std::memory_order_release);
+            state.store (DevelopmentAnalysisState::running, std::memory_order_release);
+            {
+                const juce::ScopedLock lock (dataLock);
+                status = "Optimizing chain...";
+            }
+            restartRequested.store (true, std::memory_order_release);
+            notify();
+            return;
+        }
+
+        if (result.has_value()
+            && state.load (std::memory_order_acquire) == DevelopmentAnalysisState::applying)
+        {
+            const auto applied = owner.applyAnalysisResult (*result);
+            const juce::ScopedLock lock (dataLock);
+            if (applied.failed())
+            {
+                status = applied.getErrorMessage();
+                state.store (DevelopmentAnalysisState::failed, std::memory_order_release);
             }
             else
             {
-                status = applied.getErrorMessage();
+                lastAppliedDirection = prompt;
+                status = "Applied";
+                state.store (DevelopmentAnalysisState::succeeded, std::memory_order_release);
             }
         }
-        state.store (applied.wasOk() ? DevelopmentAnalysisState::succeeded
-                                     : DevelopmentAnalysisState::failed);
     }
 
     PluginProcessor& owner;
     const juce::File spoolDirectory;
     std::unique_ptr<juce::ChildProcess> workerProcess;
     mutable juce::CriticalSection dataLock;
-    juce::String prompt, requestId, status, lastAppliedDirection;
+    juce::String prompt, requestId, status, lastAppliedDirection, remainingText;
     int iterations { 600 };
-    std::optional<protocol::AnalysisProgress> progress;
+    protocol::ExpectedChain expected;
+    PluginProcessor::Snapshot preRunSnapshot;
+    std::optional<protocol::AnalysisProgress> progress, pendingProgress;
+    std::optional<protocol::AssemblyResult> pendingAssembly;
     std::optional<protocol::AnalysisResult> pendingResult;
-    bool applyingPreview {};
-    int appliedPreviewStep {}, appliedPreviewTotal {};
-    double analysisStartedMs {};
-    double optimizationStartedMs {};
-    double lastEtaUpdateMs {};
-    juce::String remainingText;
+    std::atomic<Operation> operation { Operation::optimizing };
     std::atomic<bool> stopRequested { false };
-    std::atomic<bool> acceptLatestPreview { false };
+    std::atomic<bool> restartRequested { false };
+    std::atomic<bool> finishRequested { false };
     std::atomic<bool> workerPoisoned { false };
     std::atomic<DevelopmentAnalysisState> state { DevelopmentAnalysisState::idle };
+    double startedMs {};
+    double optimizationStartedMs {};
 };
-
-namespace
-{
-constexpr double parameterRampSeconds = 0.05;
-constexpr float bypassRampSeconds = 0.02f;
-constexpr int coefficientUpdateInterval = 32;
-
-float value (const juce::AudioProcessorValueTreeState& state, const char* id) noexcept
-{
-    return state.getRawParameterValue (id)->load();
-}
-} // namespace
 
 PluginProcessor::PluginProcessor()
     : AudioProcessor (BusesProperties()
@@ -656,39 +765,83 @@ PluginProcessor::PluginProcessor()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       parameters (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    parameters.state.setProperty ("chain", "", nullptr);
+    for (int index = 0; index < slots::kSlotCount; ++index)
+    {
+        const auto slot = slots::slotAt (index);
+        const auto& type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+        dsp::ReverbResources resources;
+#ifdef SEMANTIFX_DEVELOPMENT_REPO_PATH
+        const auto noisePath = juce::File { juce::String { SEMANTIFX_DEVELOPMENT_REPO_PATH } }
+                                   .getChildFile ("protocol/reverb/noise_44100.f32")
+                                   .getFullPathName().toStdString();
+        resources.noiseTablePath = juce::String { type.name } == "reverb" ? noisePath.c_str() : nullptr;
+#endif
+        resources.convolverFactory = [] { return std::make_unique<dsp::JuceConvolver>(); };
+        effects[static_cast<size_t> (index)] = dsp::makeEffect (type.name, resources);
+    }
+
+    for (int index = 0; index < slots::kSlotCount; ++index)
+    {
+        const auto slot = slots::slotAt (index);
+        const auto& type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+        for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
+            rawSlotValues[static_cast<size_t> (index)][parameterIndex]
+                = parameters.getRawParameterValue (parameter::slotParameterId (slot,
+                                                                                  static_cast<int> (parameterIndex)));
+        rawBypasses[static_cast<size_t> (index)]
+            = parameters.getRawParameterValue (parameter::slotBypassId (slot));
+    }
+    rawOutputGain = parameters.getRawParameterValue (parameter::outputGain);
+    rawMix = parameters.getRawParameterValue (parameter::mix);
+    rawGlobalBypass = parameters.getRawParameterValue (parameter::bypass);
+    syncCompositionFromState();
     developmentRunner = std::make_unique<DevelopmentAnalysisRunner> (*this);
+    startTimerHz (30);
 }
 
 PluginProcessor::~PluginProcessor()
 {
+    stopTimer();
     developmentRunner.reset();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout PluginProcessor::createParameterLayout()
 {
     using FloatParameter = juce::AudioParameterFloat;
-    using ID = juce::ParameterID;
-
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    for (const auto& spec : protocol::chainParameterSpecs)
-    {
-        juce::NormalisableRange<float> range { spec.minimum, spec.maximum, spec.step };
-        if (spec.logarithmic)
-            range.setSkewForCentre (std::sqrt (spec.minimum * spec.maximum));
-        layout.add (std::make_unique<FloatParameter> (ID { spec.pluginParameterId, 1 },
-                                                       spec.displayName, range, spec.defaultValue));
-    }
-    layout.add (std::make_unique<juce::AudioParameterChoice> (
-        ID { parameter::effectOrder, 1 }, "Effect Order",
-        juce::StringArray { "EQ then Distortion", "Distortion then EQ" }, 0));
-    layout.add (std::make_unique<FloatParameter> (ID { parameter::outputGain, 1 }, "Output Gain",
-                                                   juce::NormalisableRange<float> { -24.0f, 12.0f, 0.1f }, 0.0f));
-    layout.add (std::make_unique<FloatParameter> (ID { parameter::mix, 1 }, "Mix",
-                                                   juce::NormalisableRange<float> { 0.0f, 100.0f, 0.1f }, 100.0f));
-    // Keep this normalized value continuous so arbitrary host automation/state test values
-    // round-trip exactly. The toggle writes 0/1 and DSP uses a 0.5 threshold.
-    layout.add (std::make_unique<FloatParameter> (ID { parameter::bypass, 1 }, "Bypass",
-                                                   juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f));
+
+    for (int typeIndex = 0; typeIndex < protocol::kEffectTypeCount; ++typeIndex)
+        for (int ordinal = 1; ordinal <= slots::kSlotsPerType; ++ordinal)
+        {
+            const slots::Slot slot { typeIndex, ordinal };
+            const auto& type = protocol::effectTypes[static_cast<size_t> (typeIndex)];
+            for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
+            {
+                const auto& spec = protocol::parameters[type.firstParameter + parameterIndex];
+                juce::NormalisableRange<float> range { spec.minimum, spec.maximum, spec.step };
+                if (spec.logarithmic)
+                    range.setSkewForCentre (std::sqrt (spec.minimum * spec.maximum));
+                const auto displayName = juce::String { slots::slotTitle (slot) } + " " + spec.displayName;
+                layout.add (std::make_unique<FloatParameter> (
+                    juce::ParameterID { parameter::slotParameterId (slot, static_cast<int> (parameterIndex)), 1 },
+                    displayName, range, spec.defaultValue));
+            }
+            layout.add (std::make_unique<FloatParameter> (
+                juce::ParameterID { parameter::slotBypassId (slot), 1 },
+                juce::String { slots::slotTitle (slot) } + " Bypass",
+                juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f));
+        }
+
+    layout.add (std::make_unique<FloatParameter> (
+        juce::ParameterID { parameter::outputGain, 1 }, "Output Gain",
+        juce::NormalisableRange<float> { -24.0f, 12.0f, 0.1f }, 0.0f));
+    layout.add (std::make_unique<FloatParameter> (
+        juce::ParameterID { parameter::mix, 1 }, "Mix",
+        juce::NormalisableRange<float> { 0.0f, 100.0f, 0.1f }, 100.0f));
+    layout.add (std::make_unique<FloatParameter> (
+        juce::ParameterID { parameter::bypass, 1 }, "Bypass",
+        juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f));
     return layout;
 }
 
@@ -699,216 +852,409 @@ bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
         && (input == juce::AudioChannelSet::mono() || input == juce::AudioChannelSet::stereo());
 }
 
-void PluginProcessor::prepareToPlay (double sampleRate, int)
+void PluginProcessor::prepareToPlay (double sampleRate, int maximumExpectedSamplesPerBlock)
 {
     currentSampleRate = std::max (sampleRate, 1.0);
-    for (auto& bank : filters)
-        for (auto& filter : bank)
-            filter.reset();
-    for (auto& filter : distortionToneFilters)
-        filter.reset();
+    currentMaxBlockSize = std::max (maximumExpectedSamplesPerBlock, 1);
+    for (auto& effect : effects)
+        effect->prepare (currentSampleRate, currentMaxBlockSize);
+    for (int index = 0; index < slots::kSlotCount; ++index)
+        initializeEffectTargets (index);
+    outputGainSmooth.reset (currentSampleRate, globalRampSeconds);
+    wetMixSmooth.reset (currentSampleRate, globalRampSeconds);
     resetSmoothers();
-    captureBuffer.prepare (currentSampleRate, std::max (1, std::min (getTotalNumInputChannels(), 2)), 10.0);
+    previousPackedComposition = 0;
+    for (auto& effect : effects)
+        effect->reset();
+    dryBuffer.setSize (2, currentMaxBlockSize, false, true, true);
+    captureBuffer.prepare (currentSampleRate,
+                           std::max (1, std::min (getTotalNumInputChannels(), 2)), 10.0);
+}
+
+void PluginProcessor::initializeEffectTargets (int slotIndex)
+{
+    const auto slot = slots::slotAt (slotIndex);
+    const auto& type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+    std::array<float, maxParametersPerType> values {};
+    for (size_t index = 0; index < type.parameterCount; ++index)
+        values[index] = rawValue (rawSlotValues[static_cast<size_t> (slotIndex)][index]);
+    effects[static_cast<size_t> (slotIndex)]->setTargets (values.data());
+    effects[static_cast<size_t> (slotIndex)]->snapSmoothers();
 }
 
 void PluginProcessor::resetSmoothers()
 {
-    for (size_t index = 0; index < bandSmoothers.size(); ++index)
-    {
-        auto& smoother = bandSmoothers[index];
-        smoother.gain.reset (currentSampleRate, parameterRampSeconds);
-        smoother.frequency.reset (currentSampleRate, parameterRampSeconds);
-        smoother.q.reset (currentSampleRate, parameterRampSeconds);
-        smoother.gain.setCurrentAndTargetValue (value (parameters, parameter::bands[index].gain));
-        smoother.frequency.setCurrentAndTargetValue (value (parameters, parameter::bands[index].frequency));
-        smoother.q.setCurrentAndTargetValue (value (parameters, parameter::bands[index].q));
-    }
-    distortionDriveSmooth.reset (currentSampleRate, parameterRampSeconds);
-    distortionCharacterSmooth.reset (currentSampleRate, parameterRampSeconds);
-    distortionToneSmooth.reset (currentSampleRate, parameterRampSeconds);
-    distortionMixSmooth.reset (currentSampleRate, parameterRampSeconds);
-    distortionDriveSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionDrive));
-    distortionCharacterSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionCharacter));
-    distortionToneSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionTone));
-    distortionMixSmooth.setCurrentAndTargetValue (value (parameters, parameter::distortionMix));
-    outputGainSmooth.reset (currentSampleRate, bypassRampSeconds);
-    wetMixSmooth.reset (currentSampleRate, bypassRampSeconds);
-    outputGainSmooth.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (value (parameters, parameter::outputGain)));
-    const auto bypassed = value (parameters, parameter::bypass) >= 0.5f;
-    wetMixSmooth.setCurrentAndTargetValue (bypassed ? 0.0f : value (parameters, parameter::mix) * 0.01f);
+    outputGainSmooth.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (rawValue (rawOutputGain)));
+    const auto bypassed = rawValue (rawGlobalBypass) >= 0.5f;
+    wetMixSmooth.setCurrentAndTargetValue (bypassed ? 0.0f : rawValue (rawMix) * 0.01f);
 }
 
-void PluginProcessor::updateTargets() noexcept
+void PluginProcessor::updateGlobalTargets() noexcept
 {
-    for (size_t index = 0; index < bandSmoothers.size(); ++index)
-    {
-        auto& smoother = bandSmoothers[index];
-        smoother.gain.setTargetValue (value (parameters, parameter::bands[index].gain));
-        smoother.frequency.setTargetValue (value (parameters, parameter::bands[index].frequency));
-        smoother.q.setTargetValue (value (parameters, parameter::bands[index].q));
-    }
-    distortionDriveSmooth.setTargetValue (value (parameters, parameter::distortionDrive));
-    distortionCharacterSmooth.setTargetValue (value (parameters, parameter::distortionCharacter));
-    distortionToneSmooth.setTargetValue (value (parameters, parameter::distortionTone));
-    distortionMixSmooth.setTargetValue (value (parameters, parameter::distortionMix));
-    outputGainSmooth.setTargetValue (juce::Decibels::decibelsToGain (value (parameters, parameter::outputGain)));
-    const auto bypassed = value (parameters, parameter::bypass) >= 0.5f;
-    wetMixSmooth.setTargetValue (bypassed ? 0.0f : value (parameters, parameter::mix) * 0.01f);
+    outputGainSmooth.setTargetValue (juce::Decibels::decibelsToGain (rawValue (rawOutputGain)));
+    wetMixSmooth.setTargetValue (rawValue (rawGlobalBypass) >= 0.5f ? 0.0f : rawValue (rawMix) * 0.01f);
 }
 
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
     captureBuffer.push (buffer.getArrayOfReadPointers(), buffer.getNumChannels(), buffer.getNumSamples());
-    updateTargets();
+    updateGlobalTargets();
 
     const auto channels = std::min (buffer.getNumChannels(), 2);
     const auto samples = buffer.getNumSamples();
-    const auto distortionFirst = value (parameters, parameter::effectOrder) >= 0.5f;
-    for (int start = 0; start < samples; start += coefficientUpdateInterval)
-    {
-        const auto count = std::min (coefficientUpdateInterval, samples - start);
-        std::array<eq::Coefficients, 6> nextCoefficients;
-        for (size_t index = 0; index < bandSmoothers.size(); ++index)
-        {
-            auto& smoother = bandSmoothers[index];
-            const auto gain = smoother.gain.skip (count);
-            const auto frequency = smoother.frequency.skip (count);
-            const auto q = smoother.q.skip (count);
-            nextCoefficients[index] = index == 0 ? eq::lowShelf (currentSampleRate, frequency, q, gain)
-                                    : index == 5 ? eq::highShelf (currentSampleRate, frequency, q, gain)
-                                                 : eq::peak (currentSampleRate, frequency, q, gain);
-        }
+    if (channels <= 0 || samples <= 0)
+        return;
 
-        const auto distortionTone = distortionToneSmooth.skip (count);
+    const auto packed = packedComposition.load (std::memory_order_acquire);
+    const auto solo = soloSlot.load (std::memory_order_acquire);
+    std::array<float*, 2> channelPointers { buffer.getWritePointer (0),
+                                            channels > 1 ? buffer.getWritePointer (1) : nullptr };
+    for (int channel = 0; channel < channels; ++channel)
+        dryBuffer.copyFrom (channel, 0, buffer.getReadPointer (channel), samples);
+
+    if (packed != previousPackedComposition)
+    {
+        for (int chainPosition = 0; chainPosition < 8; ++chainPosition)
+        {
+            const auto encoded = (packed >> (chainPosition * 4)) & 0x0fu;
+            if (encoded == 0 || encoded > static_cast<std::uint32_t> (slots::kSlotCount))
+                break;
+            const auto bit = encoded - 1;
+            const auto previouslyActive = ((previousPackedComposition >> (chainPosition * 4)) & 0x0fu) == encoded;
+            if (! previouslyActive)
+                effects[bit]->reset();
+        }
+        previousPackedComposition = packed;
+    }
+
+    for (int chainPosition = 0; chainPosition < 8; ++chainPosition)
+    {
+        const auto encoded = (packed >> (chainPosition * 4)) & 0x0fu;
+        if (encoded == 0 || encoded > static_cast<std::uint32_t> (slots::kSlotCount))
+            break;
+        const auto slotIndex = static_cast<int> (encoded - 1);
+        const auto slot = slots::slotAt (slotIndex);
+        const auto& type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+        std::array<float, maxParametersPerType> values {};
+        for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
+            values[parameterIndex] = rawValue (rawSlotValues[static_cast<size_t> (slotIndex)][parameterIndex]);
+        auto& effect = effects[static_cast<size_t> (slotIndex)];
+        effect->setTargets (values.data());
+        if (rawValue (rawBypasses[static_cast<size_t> (slotIndex)]) >= 0.5f
+            || (solo >= 0 && solo != slotIndex))
+            continue;
+        effect->process (channelPointers.data(), channels, samples);
+    }
+
+    for (int sample = 0; sample < samples; ++sample)
+    {
+        const auto outputGain = outputGainSmooth.getNextValue();
+        const auto wetMix = wetMixSmooth.getNextValue();
         for (int channel = 0; channel < channels; ++channel)
         {
-            for (size_t index = 0; index < filters.size(); ++index)
-                filters[index][static_cast<size_t> (channel)].setCoefficients (nextCoefficients[index]);
-            distortionToneFilters[static_cast<size_t> (channel)].setCoefficients (
-                eq::highShelf (currentSampleRate, distortion::toneFrequencyHz, distortion::toneQ,
-                               distortionTone));
-        }
-
-        for (int sample = start; sample < start + count; ++sample)
-        {
-            const auto outputGain = outputGainSmooth.getNextValue();
-            const auto wetMix = wetMixSmooth.getNextValue();
-            const auto distortionDrive = distortionDriveSmooth.getNextValue();
-            const auto distortionCharacter = distortionCharacterSmooth.getNextValue();
-            const auto distortionMix = static_cast<float> (distortionMixSmooth.getNextValue());
-            for (int channel = 0; channel < channels; ++channel)
-            {
-                auto* data = buffer.getWritePointer (channel);
-                const auto dry = data[sample];
-                auto wet = dry;
-                if (distortionFirst)
-                {
-                    const auto distorted = static_cast<float> (
-                        distortion::shape (wet, distortionDrive, distortionCharacter));
-                    const auto toned = distortionToneFilters[static_cast<size_t> (channel)].process (distorted);
-                    wet = distortion::blend (wet, toned, distortionMix);
-                    for (auto& bank : filters)
-                        wet = bank[static_cast<size_t> (channel)].process (wet);
-                }
-                else
-                {
-                    for (auto& bank : filters)
-                        wet = bank[static_cast<size_t> (channel)].process (wet);
-                    const auto distorted = static_cast<float> (
-                        distortion::shape (wet, distortionDrive, distortionCharacter));
-                    const auto toned = distortionToneFilters[static_cast<size_t> (channel)].process (distorted);
-                    wet = distortion::blend (wet, toned, distortionMix);
-                }
-                wet *= outputGain;
-                data[sample] = dry + wetMix * (wet - dry);
-            }
+            auto* data = channelPointers[static_cast<size_t> (channel)];
+            const auto dry = dryBuffer.getSample (channel, sample);
+            const auto wet = data[sample] * outputGain;
+            data[sample] = dry + wetMix * (wet - dry);
         }
     }
 }
 
-void PluginProcessor::getStateInformation (juce::MemoryBlock& destination)
+double PluginProcessor::getTailLengthSeconds() const
 {
-    if (auto xml = parameters.copyState().createXml())
-        copyXmlToBinary (*xml, destination);
+    const auto packed = packedComposition.load (std::memory_order_acquire);
+    for (int position = 0; position < 8; ++position)
+    {
+        const auto encoded = (packed >> (position * 4)) & 0x0fu;
+        if (encoded == 0)
+            break;
+        const auto slot = slots::slotAt (static_cast<int> (encoded - 1));
+        if (juce::String { protocol::effectTypes[static_cast<size_t> (slot.typeIndex)].name } == "reverb")
+            return static_cast<double> (dsp::reverb::kNumSamples) / dsp::reverb::kSampleRate;
+    }
+    return 0.0;
 }
 
-void PluginProcessor::setStateInformation (const void* data, int size)
+slots::Composition PluginProcessor::getComposition() const
 {
-    if (auto xml = getXmlFromBinary (data, size); xml != nullptr)
-        if (xml->hasTagName (parameters.state.getType()))
-            parameters.replaceState (juce::ValueTree::fromXml (*xml));
+    return slots::unpackComposition (packedComposition.load (std::memory_order_acquire));
 }
 
-juce::Result PluginProcessor::applyAnalysisResultJson (const juce::String& json)
+void PluginProcessor::syncCompositionFromState()
 {
-    auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
-    if (messageManager == nullptr || ! messageManager->isThisTheMessageThread())
-        return juce::Result::fail ("Analysis results must be applied on the message thread.");
+    const auto parsed = slots::parseComposition (parameters.state.getProperty ("chain").toString().toStdString());
+    if (parsed.has_value())
+        packedComposition.store (slots::packComposition (*parsed), std::memory_order_release);
+    else
+    {
+        parameters.state.setProperty ("chain", "", nullptr);
+        packedComposition.store (0, std::memory_order_release);
+    }
+}
 
-    protocol::AnalysisResult result;
-    if (const auto parsed = protocol::parseAnalysisResult (json, result); parsed.failed())
-        return parsed;
+void PluginProcessor::setCompositionInternal (const slots::Composition& composition, bool restartRunner)
+{
+    if (composition.items.size() > 8)
+        return;
+    for (size_t index = 0; index < composition.items.size(); ++index)
+    {
+        if (! slots::isValid (composition.items[index]))
+            return;
+        for (size_t previous = 0; previous < index; ++previous)
+            if (composition.items[previous] == composition.items[index])
+                return;
+    }
+    const auto oldPacked = packedComposition.load (std::memory_order_acquire);
+    const auto packed = slots::packComposition (composition);
+    parameters.state.setProperty ("chain", juce::String { slots::serializeComposition (composition) }, nullptr);
+    packedComposition.store (packed, std::memory_order_release);
+    if (restartRunner && oldPacked != packed && developmentRunner != nullptr)
+        developmentRunner->restartImmediately();
+}
 
-    return applyAnalysisResult (result);
+void PluginProcessor::setComposition (const slots::Composition& composition)
+{
+    if (onMessageThread())
+        setCompositionInternal (composition, true);
+}
+
+bool PluginProcessor::addSlot (int effectTypeIndex)
+{
+    const auto composition = getComposition();
+    const auto free = slots::freeSlotFor (effectTypeIndex, composition);
+    if (! free.has_value())
+        return false;
+    auto next = composition;
+    next.items.push_back (*free);
+    setComposition (next);
+    return true;
+}
+
+bool PluginProcessor::removeSlot (slots::Slot slot)
+{
+    auto next = getComposition();
+    const auto found = std::find (next.items.begin(), next.items.end(), slot);
+    if (found == next.items.end())
+        return false;
+    next.items.erase (found);
+    setComposition (next);
+    return true;
+}
+
+bool PluginProcessor::moveSlot (int from, int to)
+{
+    auto next = getComposition();
+    if (from < 0 || to < 0 || from >= static_cast<int> (next.items.size())
+        || to >= static_cast<int> (next.items.size()) || from == to)
+        return false;
+    const auto item = next.items[static_cast<size_t> (from)];
+    next.items.erase (next.items.begin() + from);
+    next.items.insert (next.items.begin() + to, item);
+    setComposition (next);
+    return true;
+}
+
+float PluginProcessor::getSlotParameterValue (slots::Slot slot, int parameterIndex) const noexcept
+{
+    if (! slots::isValid (slot))
+        return 0.0f;
+    const auto type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+    if (parameterIndex < 0 || parameterIndex >= static_cast<int> (type.parameterCount))
+        return 0.0f;
+    return rawValue (rawSlotValues[static_cast<size_t> (slots::slotIndex (slot))]
+                                      [static_cast<size_t> (parameterIndex)]);
+}
+
+juce::RangedAudioParameter* PluginProcessor::getSlotParameter (slots::Slot slot, int parameterIndex) const
+{
+    if (! slots::isValid (slot))
+        return nullptr;
+    const auto type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+    if (parameterIndex < 0 || parameterIndex >= static_cast<int> (type.parameterCount))
+        return nullptr;
+    return parameters.getParameter (parameter::slotParameterId (slot, parameterIndex));
+}
+
+void PluginProcessor::setParameterValue (juce::RangedAudioParameter* parameterValue, double value,
+                                         bool notifyHost)
+{
+    if (parameterValue == nullptr)
+        return;
+    const auto& range = parameterValue->getNormalisableRange();
+    const auto clamped = range.snapToLegalValue (std::clamp (static_cast<float> (value),
+                                                               range.start, range.end));
+    if (notifyHost)
+        parameterValue->setValueNotifyingHost (parameterValue->convertTo0to1 (clamped));
+    else
+        parameterValue->setValue (parameterValue->convertTo0to1 (clamped));
+}
+
+void PluginProcessor::setSlotParameterValue (slots::Slot slot, int parameterIndex, double value,
+                                             bool notifyHost)
+{
+    setParameterValue (getSlotParameter (slot, parameterIndex), value, notifyHost);
+}
+
+bool PluginProcessor::isSlotBypassed (slots::Slot slot) const noexcept
+{
+    if (! slots::isValid (slot))
+        return false;
+    return rawValue (rawBypasses[static_cast<size_t> (slots::slotIndex (slot))]) >= 0.5f;
+}
+
+void PluginProcessor::setSlotBypassed (slots::Slot slot, bool bypassed)
+{
+    if (! slots::isValid (slot))
+        return;
+    setParameterValue (parameters.getParameter (parameter::slotBypassId (slot)), bypassed ? 1.0 : 0.0, true);
+}
+
+void PluginProcessor::setSoloSlot (int slotIndex) noexcept
+{
+    if (slotIndex < -1 || slotIndex >= slots::kSlotCount)
+        return;
+    soloSlot.store (static_cast<std::int8_t> (slotIndex), std::memory_order_release);
+}
+
+void PluginProcessor::scheduleActiveAnalysisRestart() noexcept
+{
+    parameterRestartDeadline.store (juce::Time::currentTimeMillis() + 300,
+                                     std::memory_order_release);
+}
+
+protocol::ExpectedChain PluginProcessor::expectedChain() const
+{
+    protocol::ExpectedChain result;
+    for (const auto slot : getComposition().items)
+        result.items.emplace_back (juce::String { slots::slotName (slot) }, slot.typeIndex);
+    return result;
+}
+
+PluginProcessor::Snapshot PluginProcessor::makeSnapshot() const
+{
+    Snapshot result;
+    result.composition = getComposition();
+    for (int index = 0; index < slots::kSlotCount; ++index)
+    {
+        const auto type = protocol::effectTypes[static_cast<size_t> (slots::slotAt (index).typeIndex)];
+        for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
+            result.values[static_cast<size_t> (index)][parameterIndex]
+                = rawValue (rawSlotValues[static_cast<size_t> (index)][parameterIndex]);
+        result.bypass[static_cast<size_t> (index)] = rawValue (rawBypasses[static_cast<size_t> (index)]);
+    }
+    return result;
+}
+
+void PluginProcessor::restoreSnapshot (const Snapshot& snapshot)
+{
+    if (! onMessageThread())
+        return;
+    setCompositionInternal (snapshot.composition, false);
+    for (int index = 0; index < slots::kSlotCount; ++index)
+    {
+        const auto slot = slots::slotAt (index);
+        const auto type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+        for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
+            setSlotParameterValue (slot, static_cast<int> (parameterIndex),
+                                   snapshot.values[static_cast<size_t> (index)][parameterIndex], true);
+        setParameterValue (parameters.getParameter (parameter::slotBypassId (slot)),
+                           snapshot.bypass[static_cast<size_t> (index)], true);
+    }
 }
 
 juce::Result PluginProcessor::applyAnalysisResult (const protocol::AnalysisResult& result)
 {
-    auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
-    if (messageManager == nullptr || ! messageManager->isThisTheMessageThread())
+    if (! onMessageThread())
         return juce::Result::fail ("Analysis results must be applied on the message thread.");
-
-    std::array<juce::RangedAudioParameter*, protocol::chainParameterSpecs.size()> targets {};
-    std::array<float, protocol::chainParameterSpecs.size()> clampedValues {};
-    for (size_t index = 0; index < protocol::chainParameterSpecs.size(); ++index)
+    const auto expected = expectedChain();
+    if (result.instances.size() != expected.items.size())
+        return juce::Result::fail ("Analysis result does not match the current chain.");
+    for (size_t instanceIndex = 0; instanceIndex < result.instances.size(); ++instanceIndex)
     {
-        targets[index] = parameters.getParameter (protocol::chainParameterSpecs[index].pluginParameterId);
-        if (targets[index] == nullptr)
-            return juce::Result::fail ("Plugin parameter mapping is incomplete.");
-
-        const auto& range = targets[index]->getNormalisableRange();
-        clampedValues[index] = range.snapToLegalValue (std::clamp (static_cast<float> (result.values[index]),
-                                                                   range.start, range.end));
+        const auto& instance = result.instances[instanceIndex];
+        const auto& expectedItem = expected.items[instanceIndex];
+        if (instance.instanceId != expectedItem.first || instance.effectTypeIndex != expectedItem.second)
+            return juce::Result::fail ("Analysis result does not match the current chain.");
+        const auto slot = slots::parseSlotName (instance.instanceId.toStdString());
+        if (! slot.has_value() || instance.values.size() != protocol::effectTypes[static_cast<size_t> (slot->typeIndex)].parameterCount)
+            return juce::Result::fail ("Analysis result contains an incomplete effect instance.");
+        for (size_t parameterIndex = 0; parameterIndex < instance.values.size(); ++parameterIndex)
+            setSlotParameterValue (*slot, static_cast<int> (parameterIndex), instance.values[parameterIndex], true);
     }
-
-    auto* order = parameters.getParameter (parameter::effectOrder);
-    if (order == nullptr)
-        return juce::Result::fail ("Effect-order parameter mapping is incomplete.");
-    const auto orderValue = result.effectOrder == protocol::EffectOrder::distortionThenEq ? 1.0f : 0.0f;
-    order->beginChangeGesture();
-    order->setValueNotifyingHost (order->convertTo0to1 (orderValue));
-    order->endChangeGesture();
-
-    for (size_t index = 0; index < protocol::chainParameterSpecs.size(); ++index)
-    {
-        targets[index]->beginChangeGesture();
-        targets[index]->setValueNotifyingHost (targets[index]->convertTo0to1 (clampedValues[index]));
-        targets[index]->endChangeGesture();
-    }
-
     return juce::Result::ok();
+}
+
+juce::Result PluginProcessor::applyAnalysisProgress (const protocol::AnalysisProgress& progressValue)
+{
+    protocol::AnalysisResult result { progressValue.requestId, progressValue.instances };
+    if (! progressValue.hasParameters)
+        return juce::Result::ok();
+    return applyAnalysisResult (result);
+}
+
+juce::Result PluginProcessor::applyAssemblyResult (const protocol::AssemblyResult& result)
+{
+    if (! onMessageThread())
+        return juce::Result::fail ("Assembly results must be applied on the message thread.");
+    slots::Composition composition;
+    const auto old = getComposition();
+    for (const auto& instance : result.chain)
+    {
+        const auto slot = slots::parseSlotName (instance.instanceId.toStdString());
+        if (! slot.has_value() || slot->typeIndex != instance.effectTypeIndex)
+            return juce::Result::fail ("Assembly result contains an invalid effect instance.");
+        composition.items.push_back (*slot);
+    }
+    setCompositionInternal (composition, false);
+    for (const auto& instance : result.chain)
+    {
+        const auto slot = slots::parseSlotName (instance.instanceId.toStdString());
+        if (! slot.has_value())
+            continue;
+        if (std::find (old.items.begin(), old.items.end(), *slot) != old.items.end())
+            continue;
+        for (size_t parameterIndex = 0; parameterIndex < instance.values.size(); ++parameterIndex)
+            setSlotParameterValue (*slot, static_cast<int> (parameterIndex), instance.values[parameterIndex], true);
+        setSlotBypassed (*slot, false);
+    }
+    return juce::Result::ok();
+}
+
+juce::Result PluginProcessor::applyAnalysisResultJson (const juce::String& json)
+{
+    if (! onMessageThread())
+        return juce::Result::fail ("Analysis results must be applied on the message thread.");
+    protocol::AnalysisResult result;
+    if (const auto parsed = protocol::parseAnalysisResult (json, expectedChain(), result); parsed.failed())
+        return parsed;
+    return applyAnalysisResult (result);
 }
 
 juce::Result PluginProcessor::startDevelopmentCapture()
 {
     if (developmentRunner->isBusy())
-        return juce::Result::fail ("Cancel the current analysis before capturing again.");
+        return juce::Result::fail ("Stop the current run before capturing again.");
     if (! captureBuffer.start())
         return juce::Result::fail ("Capture is unavailable or already running.");
     developmentRunner->resetStatus();
     return juce::Result::ok();
 }
 
-void PluginProcessor::stopDevelopmentWork (bool acceptLatestPreview)
+void PluginProcessor::stopDevelopmentWork (bool revertToPreRun)
 {
     captureBuffer.cancel();
-    developmentRunner->stop (acceptLatestPreview);
+    developmentRunner->stop (revertToPreRun);
 }
 
-juce::Result PluginProcessor::startDevelopmentAnalysis (const juce::String& prompt, int iterations)
+juce::Result PluginProcessor::startDevelopmentShape (const juce::String& prompt, int iterations)
 {
-    return developmentRunner->start (prompt, iterations);
+    return developmentRunner->start (true, prompt, iterations);
+}
+
+juce::Result PluginProcessor::startDevelopmentOptimization (const juce::String& prompt, int iterations)
+{
+    return developmentRunner->start (false, prompt, iterations);
 }
 
 DevelopmentAnalysisState PluginProcessor::getDevelopmentAnalysisState() const noexcept
@@ -929,6 +1275,41 @@ std::optional<protocol::AnalysisProgress> PluginProcessor::getDevelopmentProgres
 juce::String PluginProcessor::getLastAppliedDirection() const
 {
     return developmentRunner->getLastAppliedDirection();
+}
+
+void PluginProcessor::timerCallback()
+{
+    for (auto& effect : effects)
+        if (auto* reverb = dynamic_cast<dsp::ReverbEffect*> (effect.get()); reverb != nullptr
+            && reverb->impulseResponseDirty())
+            reverb->rebuildImpulseResponse();
+
+    if (developmentRunner != nullptr
+        && developmentRunner->isBusy())
+    {
+        const auto deadline = parameterRestartDeadline.load (std::memory_order_acquire);
+        if (deadline != 0 && juce::Time::currentTimeMillis() >= deadline)
+        {
+            parameterRestartDeadline.store (0, std::memory_order_release);
+            developmentRunner->restartImmediately();
+        }
+    }
+}
+
+void PluginProcessor::getStateInformation (juce::MemoryBlock& destination)
+{
+    if (auto xml = parameters.copyState().createXml())
+        copyXmlToBinary (*xml, destination);
+}
+
+void PluginProcessor::setStateInformation (const void* data, int size)
+{
+    if (auto xml = getXmlFromBinary (data, size); xml != nullptr)
+        if (xml->hasTagName (parameters.state.getType()))
+        {
+            parameters.replaceState (juce::ValueTree::fromXml (*xml));
+            syncCompositionFromState();
+        }
 }
 
 juce::AudioProcessorEditor* PluginProcessor::createEditor()

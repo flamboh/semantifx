@@ -53,12 +53,14 @@ if(NOT SEMANTIFX_DSP_ONLY)
     src/AnalysisResult.cpp
     src/AnalysisResult.h
     src/generated/EffectParameters.h
+    src/SlotPool.h
     src/CaptureBuffer.h
     src/DistortionMath.h
     src/PluginEditor.cpp
     src/PluginEditor.h
     src/PluginProcessor.cpp
     src/PluginProcessor.h
+    src/JuceConvolver.h
     src/EqMath.h
     src/EqGraphMath.h
     ${SEMANTIFX_DSP_SOURCES}
@@ -97,6 +99,10 @@ add_test(NAME semantifx_distortion_tests COMMAND semantifx_distortion_tests)
 add_executable(semantifx_capture_tests tests/CaptureBufferTests.cpp)
 target_include_directories(semantifx_capture_tests PRIVATE src)
 add_test(NAME semantifx_capture_tests COMMAND semantifx_capture_tests)
+
+add_executable(semantifx_slotpool_tests tests/SlotPoolTests.cpp)
+target_include_directories(semantifx_slotpool_tests PRIVATE src)
+add_test(NAME semantifx_slotpool_tests COMMAND semantifx_slotpool_tests)
 
 add_executable(semantifx_compressor_tests tests/CompressorMathTests.cpp)
 target_include_directories(semantifx_compressor_tests PRIVATE src)

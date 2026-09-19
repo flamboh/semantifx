@@ -120,6 +120,8 @@ std::vector<float> render (const Fixture& fixture, const std::string& noisePath,
     effect->prepare (fixture.sampleRate, 512);
     effect->setTargets (parameters.data());
     effect->snapSmoothers();
+    if (auto* reverb = dynamic_cast<semantifx::dsp::ReverbEffect*> (effect.get()))
+        reverb->rebuildImpulseResponse();
     for (int offset = 0; offset < fixture.samples; offset += blockSize)
     {
         const auto count = std::min (blockSize, fixture.samples - offset);

@@ -84,7 +84,19 @@ void DirectConvolver::process (float* const* channels, int numChannels, int numS
 }
 
 ReverbEffect::ReverbEffect (const char* noiseTablePath)
+    : ReverbEffect (std::make_unique<DirectConvolver>(), noiseTablePath)
 {
+}
+
+ReverbEffect::ReverbEffect (std::unique_ptr<Convolver> nextConvolver, const char* noiseTablePath)
+    : convolver (std::move (nextConvolver))
+{
+    if (convolver == nullptr)
+        convolver = std::make_unique<DirectConvolver>();
+    targets = { 0.5f, 0.3f, 0.3f };
+    current = targets;
+    for (size_t index = 0; index < targets.size(); ++index)
+        targetValues[index].store (targets[index], std::memory_order_relaxed);
     if (noiseTablePath != nullptr)
         loadNoiseTable (noiseTablePath);
 }
@@ -112,38 +124,47 @@ bool ReverbEffect::loadNoiseTable (const char* path)
 
     noise = std::move (loaded);
     hasNoiseTable = true;
-    if (! impulse[0].empty())
-        rebuildImpulseResponse();
+    targetGeneration.fetch_add (1, std::memory_order_acq_rel);
+    dirty.store (true, std::memory_order_release);
     return true;
 }
 
 void ReverbEffect::prepare (double newSampleRate, int newMaxBlockSize)
 {
-    sampleRate = std::max (newSampleRate, 1.0);
+    sampleRate.store (std::max (newSampleRate, 1.0), std::memory_order_release);
     maxBlockSize = std::max (newMaxBlockSize, 1);
-    current = targets;
-    convolver.prepare (sampleRate, maxBlockSize, reverb::kNumChannels);
-    if (hasNoiseTable)
-        rebuildImpulseResponse();
+    for (size_t index = 0; index < current.size(); ++index)
+        current[index] = targetValues[index].load (std::memory_order_acquire);
+    convolver->prepare (sampleRate.load (std::memory_order_acquire), maxBlockSize,
+                        reverb::kNumChannels);
+    for (auto& channel : dry)
+        channel.assign (static_cast<size_t> (maxBlockSize), 0.0f);
+    impulseReady.store (false, std::memory_order_release);
+    dirty.store (hasNoiseTable, std::memory_order_release);
     reset();
 }
 
 void ReverbEffect::reset()
 {
-    convolver.reset();
+    convolver->reset();
 }
 
 void ReverbEffect::setTargets (const float* values)
 {
-    std::copy (values, values + parameters, targets.begin());
-    current = targets;
-    if (hasNoiseTable)
-        rebuildImpulseResponse();
+    for (size_t index = 0; index < targets.size(); ++index)
+    {
+        targets[index] = values[index];
+        targetValues[index].store (values[index], std::memory_order_release);
+    }
+    current[2] = values[2];
+    targetGeneration.fetch_add (1, std::memory_order_acq_rel);
+    dirty.store (hasNoiseTable, std::memory_order_release);
 }
 
 void ReverbEffect::snapSmoothers()
 {
-    current = targets;
+    for (size_t index = 0; index < current.size(); ++index)
+        current[index] = targetValues[index].load (std::memory_order_acquire);
 }
 
 void ReverbEffect::rebuildImpulseResponse()
@@ -151,14 +172,18 @@ void ReverbEffect::rebuildImpulseResponse()
     if (! hasNoiseTable)
         return;
 
-    const auto expanded = reverb::expandMacros (current[0], current[1]);
+    const auto generation = targetGeneration.load (std::memory_order_acquire);
+    const auto decay = targetValues[0].load (std::memory_order_acquire);
+    const auto damping = targetValues[1].load (std::memory_order_acquire);
+    const auto expanded = reverb::expandMacros (decay, damping);
     std::array<const float*, reverb::kNumChannels> noisePointers {
         noise[0].data(), noise[1].data() };
     std::array<std::vector<float>, reverb::kNumChannels> baseImpulse;
     reverb::buildImpulseResponse (noisePointers.data(), expanded, baseImpulse);
 
     const auto targetLength = std::max (1, static_cast<int> (std::lround (
-        static_cast<double> (reverb::kNumSamples) * sampleRate / reverb::kSampleRate)));
+        static_cast<double> (reverb::kNumSamples) * sampleRate.load (std::memory_order_acquire)
+            / reverb::kSampleRate)));
     for (int channel = 0; channel < reverb::kNumChannels; ++channel)
     {
         auto& destination = impulse[static_cast<size_t> (channel)];
@@ -185,26 +210,44 @@ void ReverbEffect::rebuildImpulseResponse()
 
     std::array<const float*, reverb::kNumChannels> impulsePointers {
         impulse[0].data(), impulse[1].data() };
-    convolver.setImpulseResponse (impulsePointers.data(), targetLength);
+    convolver->setImpulseResponse (impulsePointers.data(), targetLength);
+    impulseReady.store (true, std::memory_order_release);
+    if (targetGeneration.load (std::memory_order_acquire) == generation)
+        dirty.store (false, std::memory_order_release);
 }
 
 void ReverbEffect::process (float* const* channels, int numChannels, int numSamples)
 {
     const auto channelCount = std::clamp (numChannels, 0, reverb::kNumChannels);
-    if (channelCount == 0 || numSamples <= 0 || impulse[0].empty())
+    if (channelCount == 0 || numSamples <= 0 || maxBlockSize <= 0
+        || ! impulseReady.load (std::memory_order_acquire))
         return;
+
+    if (numSamples > maxBlockSize)
+    {
+        for (int offset = 0; offset < numSamples; offset += maxBlockSize)
+        {
+            const auto count = std::min (maxBlockSize, numSamples - offset);
+            std::array<float*, reverb::kNumChannels> subChannels {
+                channels[0] == nullptr ? nullptr : channels[0] + offset,
+                channelCount > 1 && channels[1] != nullptr ? channels[1] + offset : nullptr };
+            process (subChannels.data(), channelCount, count);
+        }
+        return;
+    }
 
     for (int channel = 0; channel < channelCount; ++channel)
     {
         auto& channelDry = dry[static_cast<size_t> (channel)];
-        channelDry.resize (static_cast<size_t> (numSamples));
+        if (numSamples > static_cast<int> (channelDry.size()))
+            return;
         if (channels[channel] != nullptr)
-            std::copy_n (channels[channel], numSamples, channelDry.begin());
+            std::copy_n (channels[channel], numSamples, channelDry.data());
         else
-            std::fill (channelDry.begin(), channelDry.end(), 0.0f);
+            std::fill_n (channelDry.data(), numSamples, 0.0f);
     }
 
-    convolver.process (channels, channelCount, numSamples);
+    convolver->process (channels, channelCount, numSamples);
     const auto mix = std::clamp (current[2], 0.0f, 1.0f);
     for (int channel = 0; channel < channelCount; ++channel)
     {

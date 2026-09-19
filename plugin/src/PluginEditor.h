@@ -6,10 +6,11 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 
 namespace semantifx
 {
-class ChainRack;
+class CardRack;
 class EqResponseGraph;
 class SemanticLookAndFeel;
 
@@ -26,46 +27,49 @@ public:
 private:
     struct ParameterControl
     {
-        ParameterControl (PluginEditor&, juce::AudioProcessorValueTreeState&, const char* parameterID,
-                          const juce::String& displayName, const juce::String& suffix);
+        ParameterControl (PluginEditor&, bool restartAnalysisOnDragEnd);
+        void bind (const juce::String& parameterId, const juce::String& displayName,
+                   const juce::String& suffix);
+        void clear();
 
+        PluginEditor& editor;
+        bool restartAnalysisOnDragEnd {};
         juce::Slider slider;
         juce::Label label;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     };
 
-    enum class Module { eq, distortion };
-
-    void showModule (Module);
-    void selectBand (int);
+    void selectSlot (std::optional<slots::Slot>);
+    void refreshSelectedControls();
     void beginCapture();
-    void beginAnalysis();
-    void cancelWork (bool acceptLatestPreview = true);
+    void beginShape();
+    void beginOptimize();
+    void stopWork();
+    void revertWork();
     void showTransientStatus (const juce::String&, bool isError);
     void timerCallback() override;
-    void updateAnalysisPreview();
     void updateWorkflowState();
 
     PluginProcessor& pluginProcessor;
     std::unique_ptr<SemanticLookAndFeel> semanticLookAndFeel;
-    std::unique_ptr<ChainRack> chainRack;
+    std::unique_ptr<CardRack> cardRack;
     std::unique_ptr<EqResponseGraph> responseGraph;
-    std::array<std::unique_ptr<ParameterControl>, 18> bandControls;
-    std::array<std::unique_ptr<ParameterControl>, 4> distortionControls;
+    std::array<std::unique_ptr<ParameterControl>, PluginProcessor::maxParametersPerType> controls;
     std::unique_ptr<ParameterControl> mixControl;
     std::unique_ptr<ParameterControl> outputControl;
-    Module visibleModule { Module::eq };
+    std::optional<slots::Slot> selectedSlot;
     int selectedBand {};
 
     juce::TextButton importButton { "Import" };
     std::unique_ptr<juce::FileChooser> fileChooser;
-
     juce::TextEditor promptEditor;
     juce::TextButton captureButton { "Listen 10s" };
-    juce::TextButton analyzeButton { "Shape sound" };
-    juce::TextButton cancelButton { "Cancel" };
+    juce::TextButton shapeButton { "Shape sound" };
+    juce::TextButton optimizeButton { "Optimize chain" };
+    juce::TextButton stopButton { "Stop" };
+    juce::TextButton revertButton { "Revert" };
     juce::Label workflowStatus;
-    double captureProgressValue {};
+    juce::Label emptyHint;
     juce::String transientStatus;
     bool transientStatusIsError {};
     juce::int64 transientStatusExpiry {};

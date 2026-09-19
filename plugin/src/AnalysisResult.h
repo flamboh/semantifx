@@ -1,20 +1,30 @@
 #pragma once
 
-#include "generated/EffectParameters.h"
+#include "SlotPool.h"
 
 #include <juce_core/juce_core.h>
 
-#include <array>
+#include <utility>
+#include <vector>
 
 namespace semantifx::protocol
 {
-enum class EffectOrder { eqThenDistortion, distortionThenEq };
+struct InstanceValues
+{
+    juce::String instanceId;
+    int effectTypeIndex {};
+    std::vector<double> values;
+};
+
+struct ExpectedChain
+{
+    std::vector<std::pair<juce::String, int>> items;
+};
 
 struct AnalysisResult
 {
     juce::String requestId;
-    EffectOrder effectOrder { EffectOrder::eqThenDistortion };
-    std::array<double, chainParameterSpecs.size()> values {};
+    std::vector<InstanceValues> instances;
 };
 
 struct AnalysisProgress
@@ -24,15 +34,36 @@ struct AnalysisProgress
     int step {};
     int totalSteps {};
     bool hasParameters {};
-    AnalysisResult preview;
+    std::vector<InstanceValues> instances;
 };
 
-/** Parses a complete, successful chain result. */
-juce::Result parseAnalysisResult (const juce::String& json, AnalysisResult& destination);
+struct AssemblyResult
+{
+    juce::String requestId;
+    std::vector<InstanceValues> chain;
+    juce::StringArray warnings;
+};
 
-/** Parses an advisory progress snapshot produced while an analysis is running. */
-juce::Result parseAnalysisProgress (const juce::String& json, AnalysisProgress& destination);
+struct ErrorResult
+{
+    juce::String requestId;
+    juce::String type;
+    juce::String code;
+    juce::String message;
+    juce::StringArray remediation;
+};
 
-/** Parses the terminal acknowledgement for a cooperatively interrupted request. */
+juce::Result parseAnalysisResult (const juce::String& json,
+                                  const ExpectedChain& expected,
+                                  AnalysisResult& destination);
+
+juce::Result parseAnalysisProgress (const juce::String& json,
+                                    const ExpectedChain& expected,
+                                    AnalysisProgress& destination);
+
+juce::Result parseAssemblyResult (const juce::String& json, AssemblyResult& destination);
+
+juce::Result parseErrorResult (const juce::String& json, ErrorResult& destination);
+
 juce::Result parseAnalysisCancellation (const juce::String& json, juce::String& requestId);
 } // namespace semantifx::protocol

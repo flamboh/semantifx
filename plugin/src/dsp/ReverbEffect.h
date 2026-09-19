@@ -5,13 +5,20 @@
 #include "ReverbMath.h"
 
 #include <array>
+#include <atomic>
+#include <cstdint>
+#include <functional>
+#include <memory>
 #include <vector>
 
 namespace semantifx::dsp
 {
+class Convolver;
+
 struct ReverbResources
 {
     const char* noiseTablePath {};
+    std::function<std::unique_ptr<Convolver>()> convolverFactory;
 };
 
 class Convolver
@@ -46,8 +53,11 @@ public:
     static constexpr int parameters = 3;
 
     explicit ReverbEffect (const char* noiseTablePath = nullptr);
+    ReverbEffect (std::unique_ptr<Convolver> convolver, const char* noiseTablePath = nullptr);
 
     bool loadNoiseTable (const char* path);
+    bool impulseResponseDirty() const noexcept { return dirty.load (std::memory_order_acquire); }
+    void rebuildImpulseResponse();
 
     void prepare (double sampleRate, int maxBlockSize) override;
     void reset() override;
@@ -57,16 +67,22 @@ public:
     int parameterCount() const override { return parameters; }
 
 private:
-    void rebuildImpulseResponse();
-
-    double sampleRate { reverb::kSampleRate };
+    std::atomic<double> sampleRate { reverb::kSampleRate };
     int maxBlockSize {};
     std::array<float, parameters> targets {};
     std::array<float, parameters> current {};
+    std::array<std::atomic<float>, parameters> targetValues {
+        std::atomic<float> { 0.5f },
+        std::atomic<float> { 0.3f },
+        std::atomic<float> { 0.3f }
+    };
     std::array<std::vector<float>, reverb::kNumChannels> noise;
     std::array<std::vector<float>, reverb::kNumChannels> impulse;
     std::array<std::vector<float>, reverb::kNumChannels> dry;
-    DirectConvolver convolver;
+    std::unique_ptr<Convolver> convolver;
     bool hasNoiseTable {};
+    std::atomic<bool> dirty { false };
+    std::atomic<bool> impulseReady { false };
+    std::atomic<std::uint64_t> targetGeneration { 0 };
 };
 } // namespace semantifx::dsp
