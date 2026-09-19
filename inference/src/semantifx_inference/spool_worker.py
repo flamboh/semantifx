@@ -7,7 +7,9 @@ from pathlib import Path
 import time
 from typing import Callable, Optional, Tuple
 
+from .errors import SemantiFXError
 from .progress import AnalysisCancelled, ProgressFileWriter
+from .protocol import error_result
 from .service import handle
 
 
@@ -97,20 +99,34 @@ def run_spool(
     directory.mkdir(parents=True, exist_ok=True)
     processed = 0
     request_file = directory / "request.json"
+    taken_file = directory / "request.taken.json"
     while not (directory / "shutdown").exists():
+        # Claim the request by renaming it first. Reading the shared pathname and
+        # deleting it afterwards would drop a replacement the host wrote in between.
         try:
-            request = json.loads(request_file.read_text(encoding="utf-8"))
+            os.replace(request_file, taken_file)
         except FileNotFoundError:
             time.sleep(poll_seconds)
             continue
-        except (OSError, ValueError):
+        except OSError:
             time.sleep(poll_seconds)
             continue
-
         try:
-            request_file.unlink()
+            request = json.loads(taken_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            error = SemantiFXError(
+                "invalid_request",
+                "The request file was not valid JSON: %s" % exc,
+                ["Write a complete JSON object atomically to request.json."],
+            )
+            _write_json(directory / "result.json", error_result(error, None, None, 0.0))
+            request = None
+        try:
+            taken_file.unlink()
         except OSError:
             pass
+        if request is None:
+            continue
         process_request(request, directory, default_backend, analyzer)
         processed += 1
     return processed
