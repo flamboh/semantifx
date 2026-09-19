@@ -1,0 +1,9 @@
+{
+  "sample_rate": 44100,
+  "channels": 2,
+  "bands": 12,
+  "samples": 65536,
+  "seed": 20260918,
+  "taps": 1023,
+  "sha256": "59edf2b88f43373bff5b9d6d17daff3298fd4ccad87cc3e7f4667662886d8a60"
+}

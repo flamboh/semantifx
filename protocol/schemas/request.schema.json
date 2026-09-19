@@ -99,6 +99,9 @@
           },
           {
             "$ref": "#/$defs/distortionChainItem"
+          },
+          {
+            "$ref": "#/$defs/reverbChainItem"
           }
         ]
       }
@@ -352,6 +355,54 @@
           "type": "number",
           "minimum": -12.0,
           "maximum": 12.0
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        }
+      }
+    },
+    "reverbChainItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "effect_type",
+        "parameters"
+      ],
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "effect_type": {
+          "const": "reverb"
+        },
+        "parameters": {
+          "$ref": "#/$defs/reverbParameters"
+        }
+      }
+    },
+    "reverbParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decay",
+        "damping",
+        "mix"
+      ],
+      "properties": {
+        "decay": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "damping": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
         },
         "mix": {
           "type": "number",

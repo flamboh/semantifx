@@ -192,6 +192,9 @@
           },
           {
             "$ref": "#/$defs/distortionChainItem"
+          },
+          {
+            "$ref": "#/$defs/reverbChainItem"
           }
         ]
       }
@@ -388,6 +391,54 @@
         }
       }
     },
+    "reverbChainItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "effect_type",
+        "parameters"
+      ],
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "effect_type": {
+          "const": "reverb"
+        },
+        "parameters": {
+          "$ref": "#/$defs/reverbParameters"
+        }
+      }
+    },
+    "reverbParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decay",
+        "damping",
+        "mix"
+      ],
+      "properties": {
+        "decay": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "damping": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        }
+      }
+    },
     "eqParameterEntry": {
       "type": "object",
       "additionalProperties": false,
@@ -407,7 +458,8 @@
         "effect": {
           "enum": [
             "eq",
-            "distortion"
+            "distortion",
+            "reverb"
           ]
         },
         "name": {
@@ -656,7 +708,8 @@
         "effect": {
           "enum": [
             "eq",
-            "distortion"
+            "distortion",
+            "reverb"
           ]
         },
         "name": {
@@ -731,6 +784,89 @@
         }
       ]
     },
+    "reverbParameterEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effect_instance_id",
+        "effect",
+        "name",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "effect_instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "effect": {
+          "enum": [
+            "eq",
+            "distortion",
+            "reverb"
+          ]
+        },
+        "name": {
+          "enum": [
+            "decay",
+            "damping",
+            "mix"
+          ]
+        },
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "enum": [
+            "ratio"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "properties": {
+            "effect": {
+              "const": "reverb"
+            }
+          }
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "name": {
+                  "const": "decay"
+                },
+                "unit": {
+                  "const": "ratio"
+                }
+              }
+            },
+            {
+              "properties": {
+                "name": {
+                  "const": "damping"
+                },
+                "unit": {
+                  "const": "ratio"
+                }
+              }
+            },
+            {
+              "properties": {
+                "name": {
+                  "const": "mix"
+                },
+                "unit": {
+                  "const": "ratio"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
     "parameterEntry": {
       "oneOf": [
         {
@@ -738,6 +874,9 @@
         },
         {
           "$ref": "#/$defs/distortionParameterEntry"
+        },
+        {
+          "$ref": "#/$defs/reverbParameterEntry"
         }
       ]
     },

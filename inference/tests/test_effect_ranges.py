@@ -16,6 +16,21 @@ class EffectRangeTests(unittest.TestCase):
         self.assertEqual(18, len(generated))
         self.assertEqual(generated, dasp)
 
+    def test_generated_reverb_ranges_are_macro_ranges(self) -> None:
+        reverb = next(effect for effect in EFFECTS if effect[0] == "reverb")
+        self.assertEqual(
+            [
+                ("decay", (0.0, 1.0)),
+                ("damping", (0.0, 1.0)),
+                ("mix", (0.0, 1.0)),
+            ],
+            [
+                (name, (minimum, maximum))
+                for name, _unit, minimum, maximum, _default in reverb[2]
+            ],
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()

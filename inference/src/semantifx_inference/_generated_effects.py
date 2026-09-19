@@ -28,4 +28,9 @@ EFFECTS = (
         ("tone_db", "dB", -12.0, 12.0, 0.0),
         ("mix", "ratio", 0.0, 1.0, 0.25),
     )),
+    ("reverb", "Reverb with decay time, tonal damping, and wet/dry mix that adds a diffuse tail after the dry sound. Creates space, ambience, depth, distance, room, hall, church, wash, and dreaminess; longer decays sound bigger and further away.", (
+        ("decay", "ratio", 0.0, 1.0, 0.5),
+        ("damping", "ratio", 0.0, 1.0, 0.3),
+        ("mix", "ratio", 0.0, 1.0, 0.3),
+    )),
 )
