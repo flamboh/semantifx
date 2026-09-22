@@ -1,0 +1,60 @@
+#!/bin/sh
+# Full Linux build and validation of the JUCE plugin: configures and builds
+# every plugin target, runs the whole ctest suite, and validates the VST3
+# with pluginval when it is available.
+#
+#   scripts/check-plugin-linux
+#
+# Environment overrides:
+#   SEMANTIFX_JUCE_DIR         JUCE checkout (default /tmp/juce-8.0.8); when it
+#                              holds a modules/ dir it is passed to
+#                              FetchContent, otherwise JUCE is cloned.
+#   SEMANTIFX_PLUGINVAL        pluginval binary (default
+#                              /tmp/sfx/tools/pluginval/pluginval). Step 3 is
+#                              skipped when the binary is missing.
+#   SEMANTIFX_PLUGINVAL_LOGS   pluginval output dir (default
+#                              <build_dir>/pluginval-logs).
+#   SEMANTIFX_PLUGINVAL_STRICTNESS  strictness level (default 10).
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+build_dir="$repo_dir/plugin/build-linux"
+juce_dir=${SEMANTIFX_JUCE_DIR:-/tmp/juce-8.0.8}
+pluginval=${SEMANTIFX_PLUGINVAL:-/tmp/sfx/tools/pluginval/pluginval}
+log_dir=${SEMANTIFX_PLUGINVAL_LOGS:-"$build_dir/pluginval-logs"}
+strictness=${SEMANTIFX_PLUGINVAL_STRICTNESS:-10}
+jobs=${SEMANTIFX_JOBS:-$(nproc 2>/dev/null || echo 4)}
+
+if [ -d "$juce_dir/modules" ]; then
+  cmake -S "$repo_dir/plugin" -B "$build_dir" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DFETCHCONTENT_SOURCE_DIR_JUCE="$juce_dir"
+else
+  cmake -S "$repo_dir/plugin" -B "$build_dir" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo
+fi
+cmake --build "$build_dir" -j "$jobs"
+ctest --test-dir "$build_dir" --output-on-failure
+
+if [ ! -x "$pluginval" ]; then
+  printf '%s\n' "check-plugin-linux: no pluginval at $pluginval, skipping VST3 validation"
+  exit 0
+fi
+
+mkdir -p "$log_dir"
+vst3="$build_dir/Semantifx_artefacts/RelWithDebInfo/VST3/Semantifx.vst3"
+if command -v xvfb-run >/dev/null 2>&1; then
+  xvfb-run -a "$pluginval" \
+    --strictness-level "$strictness" \
+    --validate-in-process \
+    --timeout-ms 600000 \
+    --output-dir "$log_dir" \
+    --validate "$vst3"
+else
+  "$pluginval" \
+    --strictness-level "$strictness" \
+    --validate-in-process \
+    --timeout-ms 600000 \
+    --output-dir "$log_dir" \
+    --validate "$vst3"
+fi

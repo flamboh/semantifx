@@ -142,6 +142,14 @@ if(NOT SEMANTIFX_DSP_ONLY)
     src/AnalysisResult.cpp
   )
   target_include_directories(semantifx_protocol_tests PRIVATE src)
+  # Match the plugin's networking config: AnalysisResult only needs juce_core
+  # JSON/var support, and on Linux juce_core with curl enabled would require
+  # linking libcurl into this test binary.
+  target_compile_definitions(semantifx_protocol_tests PRIVATE
+    JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0
+    JUCE_REPORT_APP_USAGE=0
+  )
   target_link_libraries(semantifx_protocol_tests PRIVATE
     juce::juce_core
     juce::juce_recommended_config_flags

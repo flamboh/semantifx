@@ -68,6 +68,35 @@ discarded by request ID.
 validates its order, instances, effects, names, units, and finite values before
 applying it.
 
+## Linux full build
+
+On a Linux box with the X11/ALSA/FreeType dev packages installed
+(`libasound2-dev`, `libfreetype-dev`, `libfontconfig1-dev`, the `libx*-dev`
+set, `libglu1-mesa-dev`, `mesa-common-dev`, `libcurl4-openssl-dev`,
+`libjack-jackd2-dev`) plus `xvfb`, the full plugin builds and validates with
+one command:
+
+```sh
+scripts/check-plugin-linux
+```
+
+This configures `plugin/build-linux` (`RelWithDebInfo`, reusing the JUCE
+checkout at `SEMANTIFX_JUCE_DIR` or `/tmp/juce-8.0.8` when present), builds
+every target, runs the whole ctest suite, and validates the VST3 with
+pluginval (strictness `SEMANTIFX_PLUGINVAL_STRICTNESS`, default 10) when the
+`SEMANTIFX_PLUGINVAL` binary exists. The equivalent manual steps are:
+
+```sh
+cmake -S plugin -B plugin/build-linux -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DFETCHCONTENT_SOURCE_DIR_JUCE=/tmp/juce-8.0.8
+cmake --build plugin/build-linux -j 24
+ctest --test-dir plugin/build-linux --output-on-failure
+xvfb-run -a /tmp/sfx/tools/pluginval/pluginval --strictness-level 10 \
+  --validate-in-process --timeout-ms 600000 \
+  --output-dir /tmp/sfx/logs/pluginval \
+  --validate plugin/build-linux/Semantifx_artefacts/RelWithDebInfo/VST3/Semantifx.vst3
+```
+
 ## Linux: DSP-only checks
 
 Linux does not need the JUCE GUI or audio modules for the reusable catalogue
@@ -79,13 +108,15 @@ scripts/check-dsp
 
 This builds and runs the JUCE-free math, capture, effect parity, and slot-pool
 tests. The full plugin and processor tests must be built on macOS, where the
-JUCE GUI and audio dependencies are available.
+JUCE GUI and audio dependencies are available, or on Linux via
+`scripts/check-plugin-linux` (see "Linux full build" above).
 
 `scripts/check-plugin-syntax` goes one step further on Linux: it clones the
 pinned JUCE tag into `plugin/build-juce-src` (or uses `SEMANTIFX_JUCE_DIR`) and
 runs a header-only syntax compile of every plugin source and test with warnings
 on. It catches type, signature, and include mistakes in the JUCE code without
-building JUCE; linking and runtime behaviour still need the macOS build.
+building JUCE; for linking and runtime behaviour use the macOS build or
+`scripts/check-plugin-linux`.
 
 The plugin uses JUCE's `dsp::Convolution` for reverb in real time. Generated
 impulse responses are built by the message-thread timer, not by the audio
