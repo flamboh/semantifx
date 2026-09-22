@@ -118,6 +118,28 @@ on. It catches type, signature, and include mistakes in the JUCE code without
 building JUCE; for linking and runtime behaviour use the macOS build or
 `scripts/check-plugin-linux`.
 
+## Offline render tool
+
+`plugin/tools/render.cpp` builds the `semantifx_render` target in both the
+full and DSP-only configurations. It renders a WAV file through a serial chain
+of the exact catalogue DSP the plugin uses, for listening tests and
+diagnostics:
+
+```sh
+cmake -S plugin -B plugin/build-dsp -DSEMANTIFX_DSP_ONLY=ON
+cmake --build plugin/build-dsp --target semantifx_render -j 4
+plugin/build-dsp/semantifx_render <in.wav> <out.wav> [--block N] \
+  [--effect TYPE[:name=value,...]]...
+```
+
+Effects apply in the order given; parameters not listed stay at their
+generated defaults. Accepts mono and stereo input as 16/24-bit PCM or 32-bit
+float WAV, writes 32-bit float WAV out at the input sample rate (default block
+512), and prints input/output peak and RMS dBFS to stdout. Unknown effect
+types, unknown parameter names, and out-of-range values are rejected.
+`inference/diagnostics/render_gallery.py` (via `scripts/render-gallery`)
+renders the full preset gallery with this tool.
+
 The plugin uses JUCE's `dsp::Convolution` for reverb in real time. Generated
 impulse responses are built by the message-thread timer, not by the audio
 callback. The direct convolver remains available for parity tests and offline

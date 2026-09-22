@@ -130,6 +130,13 @@ set(SEMANTIFX_DSP_TEST_TARGETS
   semantifx_reverb_tests
   semantifx_parity_tests
 )
+
+# Offline listening-test renderer. JUCE-free, so it builds in DSP-only mode too.
+add_executable(semantifx_render tools/render.cpp ${SEMANTIFX_DSP_SOURCES})
+target_include_directories(semantifx_render PRIVATE src)
+target_compile_definitions(semantifx_render PRIVATE
+  SEMANTIFX_NOISE_TABLE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/reverb/noise_44100.f32"
+)
 if(NOT MSVC)
   foreach(test_target IN LISTS SEMANTIFX_DSP_TEST_TARGETS)
     target_compile_options(${test_target} PRIVATE -UNDEBUG)

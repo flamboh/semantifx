@@ -1,0 +1,6 @@
+#!/bin/sh
+# T12: render the listening gallery (WAVs, report.md, spectrograms, responses).
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$repo_dir/inference/.venv/bin/python" "$repo_dir/inference/diagnostics/render_gallery.py"
