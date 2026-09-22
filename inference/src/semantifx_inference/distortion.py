@@ -12,12 +12,16 @@ def _view(parameter: torch.Tensor) -> torch.Tensor:
     return parameter.reshape(-1, 1, 1)
 
 
-def _tone_filter(audio: torch.Tensor, sample_rate: float, tone_db: torch.Tensor) -> torch.Tensor:
+def _tone_filter(audio: torch.Tensor, sample_rate: float, tone_db: torch.Tensor, *, exact=None) -> torch.Tensor:
+    from .sos_exact import exact_enabled, sosfilt_exact
+
     gain = _view(tone_db)
     frequency = torch.full_like(gain, TONE_FREQUENCY_HZ)
     q = torch.full_like(gain, TONE_Q)
     b, a = dasp_pytorch.signal.biquad(gain, frequency, q, sample_rate, "high_shelf")
     sos = torch.cat((b, a), dim=-1).reshape(audio.shape[0], 1, 6)
+    if exact_enabled(exact):
+        return sosfilt_exact(sos, audio)
     return dasp_pytorch.signal.sosfilt_via_fsm(sos, audio)
 
 
@@ -28,6 +32,8 @@ def process(
     character: torch.Tensor,
     tone_db: torch.Tensor,
     mix: torch.Tensor,
+    *,
+    exact=None,
 ) -> torch.Tensor:
     """Apply a bounded, continuously variable distortion to ``audio``.
 
@@ -42,5 +48,5 @@ def process(
     soft = torch.atan(amount * audio) / torch.atan(amount)
     hard = torch.tanh(amount * audio) / torch.tanh(amount)
     shaped = soft + curve * (hard - soft)
-    toned = _tone_filter(shaped, sample_rate, tone_db)
+    toned = _tone_filter(shaped, sample_rate, tone_db, exact=exact)
     return audio + wet_mix * (toned - audio)
