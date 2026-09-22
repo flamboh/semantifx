@@ -680,7 +680,6 @@ private:
             juce::String json;
             if (consumeResultFile (json))
             {
-                resultTaken = true;
                 const auto returnedId = resultRequestId (json);
                 juce::String localRequestId;
                 protocol::ExpectedChain localExpected;
@@ -691,6 +690,10 @@ private:
                 }
                 if (! returnedId.has_value() || *returnedId != localRequestId)
                     continue;
+                // Only a result for the current request means the worker is idle;
+                // a stale delivery for a superseded request must not let Stop skip
+                // the cancellation roundtrip.
+                resultTaken = true;
 
                 if (stopPublished || stopRequested.load (std::memory_order_acquire))
                 {
