@@ -25,3 +25,4 @@ __pycache__/
 web/node_modules/
 web/dist/
 !web/public/*.wav
+.venv
