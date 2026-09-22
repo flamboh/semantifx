@@ -166,6 +166,54 @@ double maxAbsDifference (const std::vector<float>& actual, const std::vector<flo
     return maximum;
 }
 
+double rms (const std::vector<float>& values)
+{
+    if (values.empty())
+        return 0.0;
+    double energy = 0.0;
+    for (const auto value : values)
+        energy += static_cast<double> (value) * static_cast<double> (value);
+    return std::sqrt (energy / static_cast<double> (values.size()));
+}
+
+double rmsError (const std::vector<float>& actual, const std::vector<float>& expected)
+{
+    if (actual.size() != expected.size() || actual.empty())
+        return INFINITY;
+    double energy = 0.0;
+    for (size_t index = 0; index < actual.size(); ++index)
+    {
+        if (! std::isfinite (actual[index]))
+            return INFINITY;
+        const auto difference = static_cast<double> (actual[index])
+                              - static_cast<double> (expected[index]);
+        energy += difference * difference;
+    }
+    return std::sqrt (energy / static_cast<double> (actual.size()));
+}
+
+double rmsErrorDb (double errorRms, double expectedRms)
+{
+    if (errorRms == 0.0)
+        return -INFINITY;
+    if (! std::isfinite (errorRms))
+        return INFINITY;
+    if (expectedRms <= 0.0 || ! std::isfinite (expectedRms))
+        return INFINITY;
+    return 20.0 * std::log10 (errorRms / expectedRms);
+}
+
+void writeFloats (const std::filesystem::path& path, const std::vector<float>& values)
+{
+    std::ofstream stream (path, std::ios::binary);
+    if (! stream)
+        throw std::runtime_error ("Could not open output file: " + path.string());
+    stream.write (reinterpret_cast<const char*> (values.data()),
+                  static_cast<std::streamsize> (values.size() * sizeof (float)));
+    if (! stream)
+        throw std::runtime_error ("Could not write output file: " + path.string());
+}
+
 double toleranceFor (const std::string& type)
 {
     if (type == "distortion")
@@ -182,17 +230,38 @@ double toleranceFor (const std::string& type)
 
 int main (int argc, char** argv)
 {
-    if (argc != 3)
+    // Optional modes used by inference/diagnostics/parity_fuzz.py. The default
+    // two-argument invocation keeps its exact historical output so ctest and
+    // existing log parsers are unaffected.
+    bool stats = false;
+    bool writeActualOnFail = false;
+    if (argc != 3 && argc != 4 && argc != 5)
     {
-        std::cerr << "usage: semantifx_parity_tests FIXTURE_ROOT NOISE_TABLE\n";
+        std::cerr << "usage: semantifx_parity_tests FIXTURE_ROOT NOISE_TABLE [--stats] [--write-actual-on-fail]\n";
         return 2;
+    }
+    for (int index = 3; index < argc; ++index)
+    {
+        const std::string flag (argv[index]);
+        if (flag == "--stats")
+            stats = true;
+        else if (flag == "--write-actual-on-fail")
+            writeActualOnFail = true;
+        else
+        {
+            std::cerr << "unknown flag: " << flag << '\n';
+            return 2;
+        }
     }
 
     try
     {
         const auto fixtures = findFixtures (argv[1]);
         std::map<std::string, const Fixture*> firstByType;
-        std::cout << "type case maxAbsDiff tolerance PASS/FAIL\n";
+        if (stats)
+            std::cout << "type case maxAbsDiff rmsErrAbs rmsErrDb expectedRms tolerance PASS/FAIL\n";
+        else
+            std::cout << "type case maxAbsDiff tolerance PASS/FAIL\n";
         bool allPassed = true;
         for (const auto& fixture : fixtures)
         {
@@ -202,9 +271,26 @@ int main (int argc, char** argv)
             const auto passed = difference < tolerance;
             allPassed = allPassed && passed;
             firstByType.emplace (fixture.type, &fixture);
-            std::cout << fixture.type << ' ' << fixture.name << ' '
-                      << std::scientific << std::setprecision (9) << difference << ' '
-                      << tolerance << ' ' << (passed ? "PASS" : "FAIL") << '\n';
+            if (! passed && writeActualOnFail)
+                writeFloats (fixture.directory / "actual.f32", actual);
+            if (stats)
+            {
+                const auto expectedRmsValue = rms (fixture.expected);
+                const auto errorRmsValue = rmsError (actual, fixture.expected);
+                const auto errorDb = rmsErrorDb (errorRmsValue, expectedRmsValue);
+                std::cout << fixture.type << ' ' << fixture.name << ' '
+                          << std::scientific << std::setprecision (9) << difference << ' '
+                          << std::scientific << std::setprecision (9) << errorRmsValue << ' '
+                          << std::scientific << std::setprecision (5) << errorDb << ' '
+                          << std::scientific << std::setprecision (9) << expectedRmsValue << ' '
+                          << tolerance << ' ' << (passed ? "PASS" : "FAIL") << '\n';
+            }
+            else
+            {
+                std::cout << fixture.type << ' ' << fixture.name << ' '
+                          << std::scientific << std::setprecision (9) << difference << ' '
+                          << tolerance << ' ' << (passed ? "PASS" : "FAIL") << '\n';
+            }
         }
 
         bool blockSizesPassed = true;

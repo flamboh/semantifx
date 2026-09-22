@@ -1,0 +1,8 @@
+#!/bin/sh
+# Fuzzed C++/Python DSP parity: random parameters x synthetic/guitar inputs.
+# Usage: scripts/check-parity-fuzz [--cases N] [--seed S] [...]
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$repo_dir/inference/.venv/bin/python" \
+  "$repo_dir/inference/diagnostics/parity_fuzz.py" "$@"

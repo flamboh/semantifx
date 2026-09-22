@@ -9,3 +9,8 @@ cmake -S "$repo_dir/plugin" -B "$build_dir" \
   -DSEMANTIFX_DSP_ONLY=ON
 cmake --build "$build_dir" -j 4
 ctest --test-dir "$build_dir" --output-on-failure
+
+# Opt-in fuzzed parity (torch render + full C++ run; slow, default off).
+if [ "${SEMANTIFX_PARITY_FUZZ:-0}" = "1" ]; then
+  "$repo_dir/scripts/check-parity-fuzz"
+fi
