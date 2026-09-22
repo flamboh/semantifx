@@ -145,20 +145,28 @@ int main()
     setPhysical (solo, Slot { 1, 1 }, 0, 36.0f);
     setPhysical (solo, Slot { 1, 1 }, 1, 0.8f);
     setPhysical (solo, Slot { 1, 1 }, 3, 1.0f);
-    solo.setSoloSlot (1);
+    // Solo takes a slot index, not a chain position: distortion-1 is slot 2.
+    solo.setSoloSlot (semantifx::slots::slotIndex (Slot { 1, 1 }));
     solo.prepareToPlay (48000.0, 8);
     juce::AudioBuffer<float> soloBuffer { 1, 4 };
     for (int sample = 0; sample < 4; ++sample) soloBuffer.setSample (0, sample, input[static_cast<size_t> (sample)]);
     solo.processBlock (soloBuffer, midi);
 
-    const auto distortionOnly = render ({ { Slot { 1, 1 } } }, [] (PluginProcessor& value)
-    {
-        setPhysical (value, Slot { 1, 1 }, 0, 36.0f);
-        setPhysical (value, Slot { 1, 1 }, 1, 0.8f);
-        setPhysical (value, Slot { 1, 1 }, 3, 1.0f);
-    });
+    // The soloed path must match a distortion-only chain fed identical input.
+    PluginProcessor distortionOnlyProcessor;
+    distortionOnlyProcessor.setComposition ({ { Slot { 1, 1 } } });
+    setGlobalDefaults (distortionOnlyProcessor);
+    setPhysical (distortionOnlyProcessor, Slot { 1, 1 }, 0, 36.0f);
+    setPhysical (distortionOnlyProcessor, Slot { 1, 1 }, 1, 0.8f);
+    setPhysical (distortionOnlyProcessor, Slot { 1, 1 }, 3, 1.0f);
+    distortionOnlyProcessor.prepareToPlay (48000.0, 8);
+    juce::AudioBuffer<float> distortionOnlyBuffer { 1, 4 };
     for (int sample = 0; sample < 4; ++sample)
-        assert (std::abs (soloBuffer.getSample (0, sample) - distortionOnly[static_cast<size_t> (sample)]) < 1.0e-5f);
+        distortionOnlyBuffer.setSample (0, sample, input[static_cast<size_t> (sample)]);
+    distortionOnlyProcessor.processBlock (distortionOnlyBuffer, midi);
+    for (int sample = 0; sample < 4; ++sample)
+        assert (std::abs (soloBuffer.getSample (0, sample)
+                          - distortionOnlyBuffer.getSample (0, sample)) < 1.0e-6f);
 
     std::cout << "All SemantiFX processor-state tests passed\n";
 }

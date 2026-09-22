@@ -39,6 +39,33 @@ juce::String durationText (double seconds)
 
 class DevelopmentAnalysisRunner final : private juce::Thread, private juce::AsyncUpdater
 {
+    // Runner state machine. M = message thread, R = runner thread. `state`
+    // is the single source of truth; the pending* queues are guarded by
+    // dataLock and only acted on while `state` still permits it.
+    //
+    // | From               | Event (thread)                              | To         | Notes                                  |
+    // |--------------------|---------------------------------------------|------------|----------------------------------------|
+    // | idle/terminal      | start() (M)                                 | assembling | or running for optimize; thread born  |
+    // | assembling         | R consumes assembly file                    | applying   | CAS; thread stays alive                |
+    // | running            | R consumes analysis result                  | applying   | CAS; thread stays alive                |
+    // | applying           | M applies assembly, chain non-empty         | running    | restartRequested; R republishes        |
+    // | applying           | M applies assembly, chain empty             | succeeded  | finishRequested; R exits               |
+    // | applying           | M applies analysis result                   | succeeded  | or failed if the apply failed          |
+    // | applying           | stop()/revert (M)                           | cancelling | pending application dropped            |
+    // | applying           | restartImmediately() (M)                    | running    | pending dropped; restartRequested      |
+    // | assembling/running | stop()/revert (M)                           | cancelling | stopRequested; R interrupts worker     |
+    // | assembling/running | restartImmediately() (M)                    | running    | restartRequested; R republishes        |
+    // | cancelling         | R: result already taken                     | cancelled  | worker idle; no stop roundtrip         |
+    // | cancelling         | R: worker answers stop / 3 s timeout        | cancelled  | worker killed on timeout               |
+    // | succeeded/failed   | R observes terminal state                   | (exit)     | thread returns                         |
+    // | any                | threadShouldExit (R)                        | (exit)     | destructor / finishRequested           |
+    // | terminal           | resetStatus() (M, when !isBusy())           | idle       |                                        |
+    //
+    // R never exits while `state == applying` except via threadShouldExit:
+    // it waits for M to acknowledge the queued application, cancellation, or
+    // restart. Stop/Revert/restart during `applying` cancel the pending
+    // application (pendings cleared, async update cancelled) and move `state`
+    // on; handleAsyncUpdate() drops a pending whose state has moved on.
 public:
     explicit DevelopmentAnalysisRunner (PluginProcessor& processor)
         : Thread ("SemantiFX development worker"), owner (processor),
@@ -97,6 +124,7 @@ public:
         restartRequested.store (false, std::memory_order_release);
         finishRequested.store (false, std::memory_order_release);
         workerPoisoned.store (false, std::memory_order_release);
+        clearRestartDeadline();
         state.store (assemble ? DevelopmentAnalysisState::assembling
                               : DevelopmentAnalysisState::running,
                      std::memory_order_release);
@@ -128,6 +156,7 @@ public:
             pendingAssembly.reset();
             pendingResult.reset();
         }
+        clearRestartDeadline();
         stopRequested.store (true, std::memory_order_release);
         state.store (DevelopmentAnalysisState::cancelling, std::memory_order_release);
         notify();
@@ -138,6 +167,8 @@ public:
         const auto current = state.load (std::memory_order_acquire);
         if (current == DevelopmentAnalysisState::applying)
         {
+            // Cancel the pending application; the waiting runner thread picks
+            // up `running` + restartRequested and republishes.
             cancelPendingUpdate();
             {
                 const juce::ScopedLock lock (dataLock);
@@ -147,6 +178,7 @@ public:
                 operation.store (Operation::optimizing, std::memory_order_release);
                 status = "Optimizing chain...";
             }
+            clearRestartDeadline();
             stopRequested.store (false, std::memory_order_release);
             finishRequested.store (false, std::memory_order_release);
             state.store (DevelopmentAnalysisState::running, std::memory_order_release);
@@ -164,6 +196,7 @@ public:
         if (current == DevelopmentAnalysisState::assembling
             || current == DevelopmentAnalysisState::running)
         {
+            clearRestartDeadline();
             restartRequested.store (true, std::memory_order_release);
             notify();
         }
@@ -218,12 +251,20 @@ private:
     juce::File progressFile() const { return spoolDirectory.getChildFile ("progress.json"); }
     juce::File resultFile() const { return spoolDirectory.getChildFile ("result.json"); }
     juce::File stopFile() const { return spoolDirectory.getChildFile ("stop.json"); }
+    /** Runner-owned claim name; the shared result.json is renamed here, never read-then-deleted. */
+    juce::File takenResultFile() const { return spoolDirectory.getChildFile ("result.taken.json"); }
+
+    void clearRestartDeadline()
+    {
+        owner.parameterRestartDeadline.store (0, std::memory_order_release);
+    }
 
     void fail (const juce::String& message)
     {
         const juce::ScopedLock lock (dataLock);
         status = message;
         state.store (DevelopmentAnalysisState::failed, std::memory_order_release);
+        clearRestartDeadline();
     }
 
     bool writeJsonAtomically (const juce::File& destination, const juce::var& value)
@@ -238,8 +279,9 @@ private:
 
     void removeRequestFiles()
     {
-        for (const auto& file : std::array<juce::File, 8> {
+        for (const auto& file : std::array<juce::File, 9> {
                  requestFile(), progressFile(), resultFile(), stopFile(),
+                 takenResultFile(),
                  requestFile().getSiblingFile ("request.json.tmp"),
                  progressFile().getSiblingFile ("progress.json.tmp"),
                  resultFile().getSiblingFile ("result.json.tmp"),
@@ -478,6 +520,27 @@ private:
         state.store (DevelopmentAnalysisState::cancelled, std::memory_order_release);
         if (status != "Reverted" && status != "Stopped")
             status = "Stopped";
+        clearRestartDeadline();
+    }
+
+    /**
+     * Claims the shared result file by atomically renaming it to the
+     * runner-owned taken name before reading. Reading the shared pathname and
+     * deleting it afterwards would drop a replacement the worker wrote in
+     * between (mirrors the worker's request.json claim in spool_worker.py).
+     * Progress stays advisory: it is read in place and never deleted.
+     */
+    bool consumeResultFile (juce::String& json)
+    {
+        const auto taken = takenResultFile();
+        taken.deleteFile();
+        if (! resultFile().existsAsFile())
+            return false;
+        if (! resultFile().moveFileTo (taken))
+            return false;
+        json = taken.loadFileAsString();
+        taken.deleteFile();
+        return ! json.trim().isEmpty();
     }
 
     static std::optional<juce::String> resultRequestId (const juce::String& json)
@@ -556,12 +619,31 @@ private:
 
         bool stopPublished = false;
         double stopPublishedMs = 0.0;
+        bool resultTaken = false;
         while (! threadShouldExit())
         {
             if (finishRequested.exchange (false, std::memory_order_acq_rel))
                 return;
+            // The thread stays alive while the message thread acknowledges a
+            // queued application, cancellation, or restart (see state table).
+            const auto awaitingState = state.load (std::memory_order_acquire);
+            if (awaitingState == DevelopmentAnalysisState::succeeded
+                || awaitingState == DevelopmentAnalysisState::failed)
+                return;
+            if (awaitingState == DevelopmentAnalysisState::applying)
+            {
+                wait (50);
+                continue;
+            }
             if (stopRequested.load (std::memory_order_acquire) && ! stopPublished)
             {
+                if (resultTaken)
+                {
+                    // The worker already delivered; it is idle, so there is
+                    // nothing to interrupt. Resolve without a stop roundtrip.
+                    resolveCancellation();
+                    return;
+                }
                 juce::String localRequestId;
                 {
                     const juce::ScopedLock lock (dataLock);
@@ -591,13 +673,14 @@ private:
                     return;
                 }
                 stopPublished = false;
+                resultTaken = false;
             }
 
             readProgress();
-            if (resultFile().existsAsFile())
+            juce::String json;
+            if (consumeResultFile (json))
             {
-                const auto json = resultFile().loadFileAsString();
-                resultFile().deleteFile();
+                resultTaken = true;
                 const auto returnedId = resultRequestId (json);
                 juce::String localRequestId;
                 protocol::ExpectedChain localExpected;
@@ -635,8 +718,11 @@ private:
                     protocol::AnalysisResult result;
                     if (protocol::parseAnalysisResult (json, localExpected, result).wasOk())
                     {
+                        // The CAS can fail if stop()/restart() moved `state`
+                        // first; either way the loop below handles the new
+                        // state, so never return while `applying` is possible.
                         queueResult (std::move (result));
-                        return;
+                        continue;
                     }
                 }
                 handleError (json, localRequestId);
@@ -704,6 +790,7 @@ private:
                 const juce::ScopedLock lock (dataLock);
                 status = "Prompt asks for no change; chain cleared";
                 state.store (DevelopmentAnalysisState::succeeded, std::memory_order_release);
+                clearRestartDeadline();
                 finishRequested.store (true, std::memory_order_release);
                 notify();
                 return;
@@ -735,6 +822,7 @@ private:
                 status = "Applied";
                 state.store (DevelopmentAnalysisState::succeeded, std::memory_order_release);
             }
+            clearRestartDeadline();
         }
     }
 
@@ -777,7 +865,9 @@ PluginProcessor::PluginProcessor()
                                    .getFullPathName().toStdString();
         resources.noiseTablePath = juce::String { type.name } == "reverb" ? noisePath.c_str() : nullptr;
 #endif
-        resources.convolverFactory = [] { return std::make_unique<dsp::JuceConvolver>(); };
+        resources.convolverFactory = [this] {
+            return std::make_unique<dsp::JuceConvolver> (convolutionMessageQueue);
+        };
         effects[static_cast<size_t> (index)] = dsp::makeEffect (type.name, resources);
     }
 
@@ -902,61 +992,79 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     updateGlobalTargets();
 
     const auto channels = std::min (buffer.getNumChannels(), 2);
-    const auto samples = buffer.getNumSamples();
-    if (channels <= 0 || samples <= 0)
+    const auto totalSamples = buffer.getNumSamples();
+    if (channels <= 0 || totalSamples <= 0)
         return;
 
     const auto packed = packedComposition.load (std::memory_order_acquire);
     const auto solo = soloSlot.load (std::memory_order_acquire);
-    std::array<float*, 2> channelPointers { buffer.getWritePointer (0),
-                                            channels > 1 ? buffer.getWritePointer (1) : nullptr };
-    for (int channel = 0; channel < channels; ++channel)
-        dryBuffer.copyFrom (channel, 0, buffer.getReadPointer (channel), samples);
 
     if (packed != previousPackedComposition)
     {
+        // Entering slots are new membership minus old membership: a reorder
+        // keeps every surviving effect's state, only genuinely added slots
+        // reset.
+        const auto membership = [] (std::uint32_t value)
+        {
+            std::uint32_t mask {};
+            for (int chainPosition = 0; chainPosition < 8; ++chainPosition)
+            {
+                const auto encoded = (value >> (chainPosition * 4)) & 0x0fu;
+                if (encoded == 0 || encoded > static_cast<std::uint32_t> (slots::kSlotCount))
+                    break;
+                mask |= (1u << (encoded - 1));
+            }
+            return mask;
+        };
+        const auto entering = membership (packed) & ~membership (previousPackedComposition);
+        for (int slotIndex = 0; slotIndex < slots::kSlotCount; ++slotIndex)
+            if ((entering & (1u << slotIndex)) != 0)
+                effects[static_cast<size_t> (slotIndex)]->reset();
+        previousPackedComposition = packed;
+    }
+
+    // dryBuffer holds one prepared-maximum chunk; larger host blocks are
+    // processed in chunks so nothing writes past the preallocated storage.
+    const auto chunkSize = std::max (1, currentMaxBlockSize);
+    for (int offset = 0; offset < totalSamples; offset += chunkSize)
+    {
+        const auto count = std::min (chunkSize, totalSamples - offset);
+        std::array<float*, 2> channelPointers { buffer.getWritePointer (0) + offset,
+                                                channels > 1 ? buffer.getWritePointer (1) + offset
+                                                             : nullptr };
+        for (int channel = 0; channel < channels; ++channel)
+            dryBuffer.copyFrom (channel, 0, channelPointers[static_cast<size_t> (channel)], count);
+
         for (int chainPosition = 0; chainPosition < 8; ++chainPosition)
         {
             const auto encoded = (packed >> (chainPosition * 4)) & 0x0fu;
             if (encoded == 0 || encoded > static_cast<std::uint32_t> (slots::kSlotCount))
                 break;
-            const auto bit = encoded - 1;
-            const auto previouslyActive = ((previousPackedComposition >> (chainPosition * 4)) & 0x0fu) == encoded;
-            if (! previouslyActive)
-                effects[bit]->reset();
+            const auto slotIndex = static_cast<int> (encoded - 1);
+            const auto slot = slots::slotAt (slotIndex);
+            const auto& type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
+            std::array<float, maxParametersPerType> values {};
+            for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
+                values[parameterIndex] = rawValue (rawSlotValues[static_cast<size_t> (slotIndex)][parameterIndex]);
+            auto& effect = effects[static_cast<size_t> (slotIndex)];
+            effect->setTargets (values.data());
+            if (rawValue (rawBypasses[static_cast<size_t> (slotIndex)]) >= 0.5f
+                || (solo >= 0 && solo != slotIndex))
+                continue;
+            effect->process (channelPointers.data(), channels, count);
         }
-        previousPackedComposition = packed;
-    }
 
-    for (int chainPosition = 0; chainPosition < 8; ++chainPosition)
-    {
-        const auto encoded = (packed >> (chainPosition * 4)) & 0x0fu;
-        if (encoded == 0 || encoded > static_cast<std::uint32_t> (slots::kSlotCount))
-            break;
-        const auto slotIndex = static_cast<int> (encoded - 1);
-        const auto slot = slots::slotAt (slotIndex);
-        const auto& type = protocol::effectTypes[static_cast<size_t> (slot.typeIndex)];
-        std::array<float, maxParametersPerType> values {};
-        for (size_t parameterIndex = 0; parameterIndex < type.parameterCount; ++parameterIndex)
-            values[parameterIndex] = rawValue (rawSlotValues[static_cast<size_t> (slotIndex)][parameterIndex]);
-        auto& effect = effects[static_cast<size_t> (slotIndex)];
-        effect->setTargets (values.data());
-        if (rawValue (rawBypasses[static_cast<size_t> (slotIndex)]) >= 0.5f
-            || (solo >= 0 && solo != slotIndex))
-            continue;
-        effect->process (channelPointers.data(), channels, samples);
-    }
-
-    for (int sample = 0; sample < samples; ++sample)
-    {
-        const auto outputGain = outputGainSmooth.getNextValue();
-        const auto wetMix = wetMixSmooth.getNextValue();
-        for (int channel = 0; channel < channels; ++channel)
+        for (int sample = 0; sample < count; ++sample)
         {
-            auto* data = channelPointers[static_cast<size_t> (channel)];
-            const auto dry = dryBuffer.getSample (channel, sample);
-            const auto wet = data[sample] * outputGain;
-            data[sample] = dry + wetMix * (wet - dry);
+            const auto outputGain = outputGainSmooth.getNextValue();
+            const auto wetMix = wetMixSmooth.getNextValue();
+            for (int channel = 0; channel < channels; ++channel)
+            {
+                auto* data = channelPointers[static_cast<size_t> (channel)];
+                const auto dry = dryBuffer.getSample (channel, sample);
+                const auto wet = data[sample] * outputGain;
+                data[sample] = dry + wetMix * (wet - dry);
+            }
         }
     }
 }
@@ -1009,6 +1117,13 @@ void PluginProcessor::setCompositionInternal (const slots::Composition& composit
     const auto packed = slots::packComposition (composition);
     parameters.state.setProperty ("chain", juce::String { slots::serializeComposition (composition) }, nullptr);
     packedComposition.store (packed, std::memory_order_release);
+    // A removed slot cannot stay soloed: that would bypass everything.
+    const auto solo = soloSlot.load (std::memory_order_acquire);
+    if (solo >= 0
+        && std::find (composition.items.begin(), composition.items.end(),
+                       slots::slotAt (solo))
+               == composition.items.end())
+        soloSlot.store (-1, std::memory_order_release);
     if (restartRunner && oldPacked != packed && developmentRunner != nullptr)
         developmentRunner->restartImmediately();
 }
@@ -1119,8 +1234,13 @@ void PluginProcessor::setSoloSlot (int slotIndex) noexcept
 
 void PluginProcessor::scheduleActiveAnalysisRestart() noexcept
 {
-    parameterRestartDeadline.store (juce::Time::currentTimeMillis() + 300,
-                                     std::memory_order_release);
+    // Idle knob edits must not arm a deadline that fires on the next Shape:
+    // only debounce while a run is active. The deadline is cleared when a run
+    // starts, restarts, or ends (see DevelopmentAnalysisRunner).
+    if (developmentRunner != nullptr
+        && developmentRunner->getState() == DevelopmentAnalysisState::running)
+        parameterRestartDeadline.store (juce::Time::currentTimeMillis() + 300,
+                                        std::memory_order_release);
 }
 
 protocol::ExpectedChain PluginProcessor::expectedChain() const

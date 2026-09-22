@@ -137,6 +137,8 @@ private:
     void updateGlobalTargets() noexcept;
 
     static constexpr int parameterTableSize = 18;
+    /** Shared background loader for every reverb slot's Convolution; outlives effects. */
+    juce::dsp::ConvolutionMessageQueue convolutionMessageQueue { 32 };
     std::array<std::unique_ptr<dsp::Effect>, slots::kSlotCount> effects;
     std::array<std::array<std::atomic<float>*, parameterTableSize>, slots::kSlotCount> rawSlotValues {};
     std::array<std::atomic<float>*, slots::kSlotCount> rawBypasses {};

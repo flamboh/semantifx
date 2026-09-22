@@ -328,15 +328,17 @@ private:
             const auto free = slots::freeSlotFor (typeIndex, current);
             const auto title = juce::String { slots::slotTitle ({ typeIndex, 1 }) }.upToLastOccurrenceOf (" ", false, false);
             menu.addItem (title, free.has_value(), false,
-                          [this, typeIndex]
-                          {
-                              if (owner.addSlot (typeIndex))
-                              {
-                                  const auto next = owner.getComposition();
-                                  if (! next.items.empty())
-                                      onSelect (next.items.back());
-                              }
-                          });
+                           [safeThis = juce::Component::SafePointer<CardRack> { this }, typeIndex]
+                           {
+                               if (safeThis == nullptr)
+                                   return;
+                               if (safeThis->owner.addSlot (typeIndex))
+                               {
+                                   const auto next = safeThis->owner.getComposition();
+                                   if (! next.items.empty())
+                                       safeThis->onSelect (next.items.back());
+                               }
+                           });
         }
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&plusButton));
     }
@@ -409,8 +411,13 @@ public:
         }
     }
 
+    ~EqResponseGraph() override { endActiveGesture(); }
+
     void setSlot (std::optional<slots::Slot> next)
     {
+        // Rebinding mid-gesture must not strand beginChangeGesture() on the
+        // old parameters: end the retained gesture before switching slots.
+        endActiveGesture();
         selectedSlot = next;
         refresh();
     }
@@ -531,8 +538,14 @@ private:
 
     void beginDrag (int index)
     {
-        if (auto* frequency = parameter (index, 1)) frequency->beginChangeGesture();
-        if (auto* gain = parameter (index, 0)) gain->beginChangeGesture();
+        endActiveGesture();
+        activeBand = index;
+        activeFrequency = parameter (index, 1);
+        activeGain = parameter (index, 0);
+        if (activeFrequency != nullptr)
+            activeFrequency->beginChangeGesture();
+        if (activeGain != nullptr)
+            activeGain->beginChangeGesture();
     }
 
     void drag (int index, juce::Point<float> point)
@@ -540,20 +553,43 @@ private:
         const auto plot = plotBounds();
         if (plot.getWidth() <= 0.0f || plot.getHeight() <= 0.0f)
             return;
-        if (auto* frequency = parameter (index, 1))
+        // Drive the gesture's own parameters even if the selected slot changed
+        // mid-drag; otherwise mouse-up would end the gesture on a different slot.
+        auto* frequency = (activeFrequency != nullptr && activeBand == index)
+            ? activeFrequency : parameter (index, 1);
+        auto* gain = (activeGain != nullptr && activeBand == index)
+            ? activeGain : parameter (index, 0);
+        if (frequency != nullptr)
             frequency->setValueNotifyingHost (frequency->convertTo0to1 (
                 static_cast<float> (eq::graph::unitToFrequency ((point.x - plot.getX()) / plot.getWidth()))));
-        if (auto* gain = parameter (index, 0))
+        if (gain != nullptr)
             gain->setValueNotifyingHost (gain->convertTo0to1 (
                 static_cast<float> (eq::graph::unitToGain ((point.y - plot.getY()) / plot.getHeight()))));
         refresh();
     }
 
-    void endDrag (int index)
+    void endDrag (int)
     {
-        if (auto* frequency = parameter (index, 1)) frequency->endChangeGesture();
-        if (auto* gain = parameter (index, 0)) gain->endChangeGesture();
+        // End exactly the parameters whose gestures began, whatever the
+        // current selection is.
+        endActiveGesture();
         owner.scheduleActiveAnalysisRestart();
+    }
+
+    /** Ends the retained gesture, if any, on its own parameters. */
+    void endActiveGesture()
+    {
+        if (activeFrequency != nullptr)
+        {
+            activeFrequency->endChangeGesture();
+            activeFrequency = nullptr;
+        }
+        if (activeGain != nullptr)
+        {
+            activeGain->endChangeGesture();
+            activeGain = nullptr;
+        }
+        activeBand = -1;
     }
 
     bool nudge (int index, int horizontal, int vertical)
@@ -580,6 +616,10 @@ private:
     std::array<std::unique_ptr<Node>, 6> nodes;
     std::optional<slots::Slot> selectedSlot;
     int selectedBand {};
+    /** Parameters whose change gestures began; ended on mouse-up/rebind/destruction. */
+    juce::RangedAudioParameter* activeFrequency {};
+    juce::RangedAudioParameter* activeGain {};
+    int activeBand { -1 };
 };
 
 PluginEditor::ParameterControl::ParameterControl (PluginEditor& editorValue,
