@@ -15,9 +15,3 @@ Read `CONTEXT.md` for the vocabulary before naming anything.
   Set `SEMANTIFX_RUN_MODEL_TESTS=1` to include the golden CLAP test.
 - API keys live in `.env` at the repo root (gitignored). Never print them.
 - Experiment write-ups go in `docs/experiments/`.
-
-## Agent references
-
-- [Issue tracker](docs/agents/issue-tracker.md): GitHub Issues and wayfinding conventions.
-- [Triage labels](docs/agents/triage-labels.md): label names and meanings.
-- [Domain documentation](docs/agents/domain.md): vocabulary and ADRs.
