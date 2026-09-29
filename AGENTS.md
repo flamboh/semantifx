@@ -16,19 +16,8 @@ Read `CONTEXT.md` for the vocabulary before naming anything.
 - API keys live in `.env` at the repo root (gitignored). Never print them.
 - Experiment write-ups go in `docs/experiments/`.
 
-## Agent skills
+## Agent references
 
-### Issue tracker
-
-GitHub Issues on `flamboh/semantifx`, driven with `gh`. See
-`docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`,
-`ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` at the root, ADRs under `docs/adr/`. See
-`docs/agents/domain.md`.
+- [Issue tracker](docs/agents/issue-tracker.md): GitHub Issues and wayfinding conventions.
+- [Triage labels](docs/agents/triage-labels.md): label names and meanings.
+- [Domain documentation](docs/agents/domain.md): vocabulary and ADRs.
