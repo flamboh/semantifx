@@ -121,6 +121,14 @@ add_test(
     "${CMAKE_CURRENT_SOURCE_DIR}/../protocol/reverb/noise_44100.f32"
 )
 
+add_executable(semantifx_audio_quality_tests tests/AudioQualityTests.cpp ${SEMANTIFX_DSP_SOURCES})
+target_include_directories(semantifx_audio_quality_tests PRIVATE src)
+add_test(
+  NAME semantifx_audio_quality_tests
+  COMMAND semantifx_audio_quality_tests
+    "${CMAKE_CURRENT_SOURCE_DIR}/../protocol/reverb/noise_44100.f32"
+)
+
 set(SEMANTIFX_DSP_TEST_TARGETS
   semantifx_eq_tests
   semantifx_capture_tests
@@ -129,6 +137,7 @@ set(SEMANTIFX_DSP_TEST_TARGETS
   semantifx_compressor_tests
   semantifx_reverb_tests
   semantifx_parity_tests
+  semantifx_audio_quality_tests
 )
 
 # Offline listening-test renderer. JUCE-free, so it builds in DSP-only mode too.
