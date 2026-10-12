@@ -183,6 +183,16 @@ if(NOT SEMANTIFX_DSP_ONLY)
   )
   add_test(NAME semantifx_processor_tests COMMAND semantifx_processor_tests)
 
+  add_executable(semantifx_processor_audio_tests tests/ProcessorAudioTests.cpp)
+  target_include_directories(semantifx_processor_audio_tests PRIVATE src)
+  target_compile_definitions(semantifx_processor_audio_tests PRIVATE JucePlugin_Name="Semantifx")
+  target_link_libraries(semantifx_processor_audio_tests PRIVATE
+    Semantifx
+    juce::juce_audio_utils
+    juce::juce_dsp
+  )
+  add_test(NAME semantifx_processor_audio_tests COMMAND semantifx_processor_audio_tests)
+
   if(APPLE)
     add_test(
       NAME semantifx_microphone_permission
