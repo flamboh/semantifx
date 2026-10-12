@@ -125,6 +125,7 @@ def analyze_options_schema():
             "learning_rate": {"type": "number", "exclusiveMinimum": 0},
             "parameter_initialization": {"enum": ["current", "random"]},
             "parameter_regularization": {"type": "number", "minimum": 0},
+            "match_loudness": {"type": "boolean"},
             "roll_samples": {"type": "integer", "minimum": 0},
             "random_seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
         },

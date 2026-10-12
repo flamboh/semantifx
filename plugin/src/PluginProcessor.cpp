@@ -416,7 +416,8 @@ private:
         optionObject->setProperty ("criterion", "cosine-sim");
         optionObject->setProperty ("learning_rate", 0.01);
         optionObject->setProperty ("parameter_initialization", "current");
-        optionObject->setProperty ("parameter_regularization", 0.0);
+        optionObject->setProperty ("parameter_regularization", 1.0);
+        optionObject->setProperty ("match_loudness", true);
         optionObject->setProperty ("random_seed", 0);
         object->setProperty ("options", options);
         return writeJsonAtomically (requestFile(), request);

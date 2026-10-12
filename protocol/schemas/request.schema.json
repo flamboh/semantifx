@@ -151,6 +151,9 @@
           "type": "number",
           "minimum": 0
         },
+        "match_loudness": {
+          "type": "boolean"
+        },
         "roll_samples": {
           "type": "integer",
           "minimum": 0
