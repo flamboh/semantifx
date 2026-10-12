@@ -10,7 +10,8 @@
     "check": "vp check",
     "lint": "vp lint .",
     "fmt": "vp fmt",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "deploy": "cf deploy"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
@@ -21,11 +22,13 @@
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-beta.sha-91c870c02",
     "@tailwindcss/vite": "^4",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.1",
+    "cf": "^1.0.0-beta.14",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vite": "^8.0.7",

@@ -9,4 +9,4 @@ bun run dev
 bun run build   # writes dist/
 ```
 
-`wrangler.jsonc` serves `dist/` as Cloudflare static assets: `bunx wrangler deploy`.
+`cloudflare.config.ts` serves the build as a Cloudflare Worker with static assets: `bun run deploy` (runs `cf deploy`).
