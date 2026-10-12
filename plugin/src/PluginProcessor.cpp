@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "JuceConvolver.h"
 #include "PluginEditor.h"
+#include "dsp/FiniteAudio.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -991,6 +992,7 @@ void PluginProcessor::updateGlobalTargets() noexcept
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+    dsp::sanitizeAudio (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), buffer.getNumSamples());
     captureBuffer.push (buffer.getArrayOfReadPointers(), buffer.getNumChannels(), buffer.getNumSamples());
     updateGlobalTargets();
 

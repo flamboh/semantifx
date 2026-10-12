@@ -2,6 +2,7 @@
 
 #include "DenormalGuard.h"
 #include "EffectDefaults.h"
+#include "FiniteAudio.h"
 
 #include <algorithm>
 #include <cmath>
@@ -276,6 +277,7 @@ void ReverbEffect::process (float* const* channels, int numChannels, int numSamp
 {
     DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (numChannels, 0, reverb::kNumChannels);
+    sanitizeAudio (channels, channelCount, numSamples);
     if (channels == nullptr || channelCount == 0 || numSamples <= 0 || maxBlockSize <= 0
         || ! impulseReady.load (std::memory_order_acquire))
         return;

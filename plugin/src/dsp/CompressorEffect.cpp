@@ -2,6 +2,7 @@
 
 #include "DenormalGuard.h"
 #include "EffectDefaults.h"
+#include "FiniteAudio.h"
 
 #include <algorithm>
 #include <cmath>
@@ -41,6 +42,7 @@ void CompressorEffect::process (float* const* channels, int numChannels, int num
 {
     DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (numChannels, 0, 2);
+    sanitizeAudio (channels, channelCount, numSamples);
     if (channelCount == 0 || numSamples <= 0)
         return;
 

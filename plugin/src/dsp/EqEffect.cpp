@@ -2,6 +2,7 @@
 
 #include "DenormalGuard.h"
 #include "EffectDefaults.h"
+#include "FiniteAudio.h"
 
 #include <algorithm>
 
@@ -60,6 +61,7 @@ void EqEffect::process (float* const* channels, int numChannels, int numSamples)
 {
     DenormalGuard denormalGuard;
     const auto channelCount = std::clamp (numChannels, 0, 2);
+    sanitizeAudio (channels, channelCount, numSamples);
     if (channelCount == 0 || numSamples <= 0)
         return;
 
