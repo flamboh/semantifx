@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -98,6 +99,65 @@ int main (int argc, char** argv)
                           / static_cast<double> (kNumBands);
     assert (near (impulse[0][0], expectedChannel0));
     assert (near (impulse[1][0], 2.0 * expectedChannel0));
+
+    {
+        // T16 pink-weighted spectral normalization scale, evaluated on IRs
+        // built from the real frozen noise table.
+        std::ifstream noiseInput (argv[1], std::ios::binary);
+        assert (static_cast<bool> (noiseInput));
+        constexpr auto valuesPerChannel = static_cast<size_t> (kNumBands)
+                                        * static_cast<size_t> (kNumSamples);
+        std::array<std::vector<float>, 2> table;
+        for (auto& channel : table)
+        {
+            channel.resize (valuesPerChannel);
+            noiseInput.read (reinterpret_cast<char*> (channel.data()),
+                             static_cast<std::streamsize> (channel.size() * sizeof (float)));
+            assert (static_cast<bool> (noiseInput));
+        }
+        const float* tablePointers[] { table[0].data(), table[1].data() };
+
+        auto scaleAt = [&tablePointers] (double decay, double damping)
+        {
+            const auto expanded = expandMacros (decay, damping);
+            std::array<std::vector<float>, 2> built;
+            buildImpulseResponse (tablePointers, expanded, built);
+            return pinkNormalizationScale (built);
+        };
+
+        const auto defaultsScale = scaleAt (0.5, 0.3);
+        assert (std::isfinite (defaultsScale));
+        assert (defaultsScale > 0.0 && defaultsScale < 1.0);
+        // Approximately -17.6 dB at defaults (the T15 prediction): +/-0.5 dB
+        // pins the normalization while allowing the measured K=64-vs-128 grid
+        // disagreement (0.15 dB), float32 IR rounding, and libm differences.
+        const auto defaultsDb = 20.0 * std::log10 (defaultsScale);
+        assert (std::abs (defaultsDb - -17.6) <= 0.5);
+
+        // Longer decays carry more IR energy, so s decreases monotonically.
+        for (const auto damping : { 0.0, 0.5, 1.0 })
+        {
+            auto previous = scaleAt (0.0, damping);
+            assert (std::isfinite (previous));
+            for (const auto decay : { 0.25, 0.5, 0.75, 1.0 })
+            {
+                const auto current = scaleAt (decay, damping);
+                assert (std::isfinite (current));
+                assert (current < previous);
+                previous = current;
+            }
+        }
+
+        // A silent IR normalizes to the 1.0 no-op.
+        std::array<std::vector<float>, 2> silence;
+        for (auto& channel : silence)
+            channel.assign (static_cast<size_t> (kNumSamples), 0.0f);
+        assert (near (pinkNormalizationScale (silence), 1.0));
+
+        std::cout << std::setprecision (12)
+                  << "Reverb normalization scale at defaults: " << defaultsScale
+                  << " (" << defaultsDb << " dB)\n";
+    }
 
     std::cout << "All Semantifx reverb-math tests passed\n";
     {

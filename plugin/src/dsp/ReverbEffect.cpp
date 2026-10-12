@@ -205,6 +205,16 @@ void ReverbEffect::rebuildImpulseResponse()
     std::array<std::vector<float>, reverb::kNumChannels> baseImpulse;
     reverb::buildImpulseResponse (noisePointers.data(), expanded, baseImpulse);
 
+    // T16 pink-weighted spectral normalization on the base 44.1 kHz IR,
+    // before the resample/energy block (a scalar gain commutes with it).
+    // Runs here on the message/timer thread via PluginProcessor::timerCallback,
+    // never on the audio thread.
+    const auto normalizationScale = reverb::pinkNormalizationScale (baseImpulse);
+    for (auto& channel : baseImpulse)
+        for (auto& value : channel)
+            value = static_cast<float> (
+                static_cast<double> (value) * normalizationScale);
+
     const auto configuredSampleRate = sampleRate.load (std::memory_order_acquire);
     const auto targetLength = std::max (1, static_cast<int> (std::lround (
         static_cast<double> (reverb::kNumSamples) * configuredSampleRate
@@ -302,8 +312,15 @@ void ReverbEffect::process (float* const* channels, int numChannels, int numSamp
                 const auto mix = std::clamp (blockStartMix
                                             + progress * (targetMix - blockStartMix),
                                             0.0f, 1.0f);
+                // Equal-power (loudness-compensated) crossfade, applied to the
+                // same per-sample smoothed mix value the linear law used.
+                constexpr double halfPi = 3.14159265358979323846 / 2.0;
+                const auto dryGain = static_cast<float> (
+                    std::cos (static_cast<double> (mix) * halfPi));
+                const auto wetGain = static_cast<float> (
+                    std::sin (static_cast<double> (mix) * halfPi));
                 const auto drySample = channelDry[static_cast<size_t> (sample)];
-                data[sample] = (1.0f - mix) * drySample + mix * data[sample];
+                data[sample] = dryGain * drySample + wetGain * data[sample];
             }
         }
     }

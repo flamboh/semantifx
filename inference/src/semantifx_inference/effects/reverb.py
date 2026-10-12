@@ -8,6 +8,8 @@ from dasp's renderer, which duplicates mono input to stereo.
 from pathlib import Path
 from typing import Mapping
 
+import math
+
 import numpy as np
 import torch
 
@@ -16,6 +18,17 @@ SAMPLE_RATE = 44_100
 NUM_BANDS = 12
 NUM_SAMPLES = 65_536
 NUM_CHANNELS = 2
+
+# Pink-weighted spectral normalization (T16): the built IR is scaled by
+# s = sqrt(sum_k W_k / sum_k W_k P_k) with K = 64 log-spaced bins in
+# [20 Hz, 20 kHz], P_k the mean over channels of |DFT{h}(f_k)|^2 (plain
+# unwindowed DFT at exactly those frequencies), and W_k = 1 / f_k.
+# Bin definition (geometric, endpoints inclusive):
+# f_k = 20 * (20000 / 20) ** (k / (K - 1)). The C++ side in
+# plugin/src/dsp/ReverbMath.h uses the identical definition in float64.
+NORMALIZATION_BINS = 64
+NORMALIZATION_FMIN = 20.0
+NORMALIZATION_FMAX = 20_000.0
 
 _NOISE_PATH = Path(__file__).resolve().parents[4] / "protocol" / "reverb" / "noise_44100.f32"
 _NOISE_CPU: torch.Tensor | None = None
@@ -82,6 +95,55 @@ def build_impulse_response(
     return impulse if batched else impulse[0]
 
 
+_NORMALIZATION_CACHE: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
+
+
+def _normalization_basis(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return the cached (complex DFT basis, pink weights) for a device.
+
+    The basis has shape ``(64, 65536)`` complex128 with entry
+    ``exp(-2j * pi * f_k * n / 44100)``; weights are ``1 / f_k`` float64.
+    Cached per device; constants carry no gradient.
+    """
+    key = str(device)
+    if key not in _NORMALIZATION_CACHE:
+        bins = torch.logspace(
+            math.log10(NORMALIZATION_FMIN),
+            math.log10(NORMALIZATION_FMAX),
+            steps=NORMALIZATION_BINS,
+            device=device,
+            dtype=torch.float64,
+        )
+        samples = torch.arange(NUM_SAMPLES, device=device, dtype=torch.float64)
+        basis = torch.exp(
+            -2j * math.pi * torch.outer(bins / SAMPLE_RATE, samples)
+        )
+        weights = 1.0 / bins
+        _NORMALIZATION_CACHE[key] = (basis, weights)
+    return _NORMALIZATION_CACHE[key]
+
+
+def pink_normalization_scale(impulse: torch.Tensor) -> torch.Tensor:
+    """Pink-weighted spectral normalization scale for an impulse response.
+
+    Accepts ``(channels, samples)`` or ``(batch, channels, samples)`` and
+    returns a scalar or ``(batch,)`` scale ``s`` computed in float64 with
+    vectorized torch ops, so autograd gradients flow through ``s`` into the
+    IR. Mirrors ``pinkNormalizationScale`` in ``plugin/src/dsp/ReverbMath.h``.
+    """
+    basis, weights = _normalization_basis(impulse.device)
+    flat = impulse.to(dtype=torch.float64)
+    batched = flat.ndim == 3
+    if not batched:
+        flat = flat.unsqueeze(0)
+    spectrum = torch.einsum(
+        "kn,bcn->bck", basis, torch.complex(flat, torch.zeros_like(flat))
+    )
+    power = spectrum.abs().square().mean(dim=1)
+    scales = torch.sqrt(weights.sum() / (weights * power).sum(dim=-1))
+    return scales if batched else scales[0]
+
+
 def fft_convolve(audio: torch.Tensor, impulse: torch.Tensor) -> torch.Tensor:
     """Apply causal full convolution and return the input-length prefix."""
     if audio.ndim != 3 or impulse.ndim != 3:
@@ -109,9 +171,14 @@ def render(audio: torch.Tensor, sample_rate: float, params: Mapping[str, torch.T
 
     band_gains, band_decays = expand_macros(decay, damping)
     impulse = build_impulse_response(band_gains, band_decays, _noise_for(audio))
+    scales = pink_normalization_scale(impulse)
+    impulse = impulse * scales.to(dtype=impulse.dtype)[:, None, None]
     impulse = impulse[:, : audio.shape[1], :]
     wet = fft_convolve(audio, impulse)
-    return (1.0 - mix[:, None, None]) * audio + mix[:, None, None] * wet
+    half_pi = math.pi / 2.0
+    dry_gain = torch.cos(mix[:, None, None] * half_pi)
+    wet_gain = torch.sin(mix[:, None, None] * half_pi)
+    return dry_gain * audio + wet_gain * wet
 
 
 __all__ = [
@@ -119,5 +186,6 @@ __all__ = [
     "expand_macros",
     "fft_convolve",
     "load_noise_table",
+    "pink_normalization_scale",
     "render",
 ]

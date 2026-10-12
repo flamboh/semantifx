@@ -164,9 +164,11 @@ def render_reverb_48k(
 
     Mirrors ``ReverbEffect::rebuildImpulseResponse`` in
     ``plugin/src/dsp/ReverbEffect.cpp``: the frozen 44100 Hz IR built by
-    ``effects/reverb.py`` is linear-interpolated to
+    ``effects/reverb.py`` is pink-normalized, linear-interpolated to
     ``round(65536 * sr / 44100)`` taps with endpoint-pinned positions, then
-    scaled to preserve time-integrated energy, then convolved at 48 kHz.
+    scaled to preserve time-integrated energy, then convolved at 48 kHz with
+    the equal-power mix law. That batch checks the C++ resampling math, not
+    the renderer itself; the 44100 Hz batch checks the renderer.
     """
     from semantifx_inference.effects import reverb as rev
 
@@ -180,6 +182,7 @@ def render_reverb_48k(
     base = rev.build_impulse_response(
         band_gains, band_decays, rev.load_noise_table().to(dtype=torch.float32)
     )[0]  # drop the batch dim -> (2, 65536)
+    base = base * rev.pink_normalization_scale(base).to(dtype=base.dtype)
 
     channels = []
     for channel in range(rev.NUM_CHANNELS):
@@ -211,7 +214,10 @@ def render_reverb_48k(
     impulse = impulse[:, : tensor.shape[1], :]
     with torch.no_grad():
         wet = rev.fft_convolve(tensor, impulse)
-    out = (1.0 - mix) * tensor + mix * wet
+    import math
+
+    half_pi = math.pi / 2.0
+    out = math.cos(mix * half_pi) * tensor + math.sin(mix * half_pi) * wet
     return out.detach().cpu().numpy().reshape(-1).astype(np.float32)
 
 

@@ -63,7 +63,7 @@ inline constexpr std::array<EffectTypeSpec, 4> effectTypes {{
     { "eq", 0, 18, "Six-band parametric equalizer with a low shelf, four peaking bands, and a high shelf. Boosts or cuts frequency ranges to shape brightness, warmth, body, presence, harshness, mud, thinness, and clarity." },
     { "distortion", 18, 4, "Distortion with drive, character, tone, and wet/dry mix. Nonlinear waveshaping that adds harmonics for saturation, grit, warmth from soft clipping, overdrive, fuzz, and aggression." },
     { "compressor", 22, 5, "Dynamic range compressor with threshold, ratio, attack, soft knee, and makeup gain. Evens out level differences to add punch, tightness, sustain, glue, consistency, and perceived loudness, or to tame peaks and control dynamics." },
-    { "reverb", 27, 3, "Reverb with decay time, tonal damping, and wet/dry mix that adds a diffuse tail after the dry sound. Creates space, ambience, depth, distance, room, hall, church, wash, and dreaminess; longer decays sound bigger and further away." },
+    { "reverb", 27, 3, "Reverb with decay time, tonal damping, and a loudness-compensated equal-power wet/dry mix that adds a diffuse tail after the dry sound. Creates space, ambience, depth, distance, room, hall, church, wash, and dreaminess; longer decays sound bigger and further away." },
 }};
 inline constexpr int kEffectTypeCount = 4;
 } // namespace semantifx::protocol
