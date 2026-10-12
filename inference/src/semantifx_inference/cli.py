@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="current",
     )
     analyze_parser.add_argument("--parameter-regularization", type=float, default=0.0)
+    analyze_parser.add_argument(
+        "--match-loudness",
+        action="store_true",
+        help="Score RMS-matched audio so the optimizer cannot win by changing level.",
+    )
     analyze_parser.add_argument("--roll-samples", type=int, default=None)
     analyze_parser.add_argument("--random-seed", type=int, default=0)
     chain_group = analyze_parser.add_mutually_exclusive_group()
@@ -110,6 +115,8 @@ def _run_analysis(args) -> int:
         "parameter_initialization": args.parameter_initialization,
         "parameter_regularization": args.parameter_regularization,
     }
+    if args.match_loudness:
+        options["match_loudness"] = True
     if args.roll_samples is not None:
         options["roll_samples"] = args.roll_samples
     if args.random_seed is not None:

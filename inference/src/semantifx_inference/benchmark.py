@@ -24,6 +24,7 @@ _MATRIX_KEYS = (
     "learning_rate",
     "parameter_initialization",
     "parameter_regularization",
+    "match_loudness",
     "roll_samples",
 )
 _CSV_FIELDS = (

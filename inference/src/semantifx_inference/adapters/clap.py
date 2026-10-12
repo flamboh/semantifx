@@ -19,6 +19,11 @@ def load_optimization_audio(runtime, audio_path: Path):
     )
 
 
+def _rms(samples):
+    """Per-item RMS over channels and time, shaped to broadcast against ``samples``."""
+    return samples.square().mean(dim=(-2, -1), keepdim=True).sqrt()
+
+
 def _freeze_model(model) -> None:
     """Freeze the loaded CLAP parameters while retaining gradients to audio."""
     candidates = [
@@ -118,11 +123,21 @@ class CLAPAdapter:
                         return -(embedding @ target.T).mean()
                     return (1 - runtime.torch.cosine_similarity(embedding, target, dim=-1)).mean()
 
+                match_loudness = options.get("match_loudness", False)
+                input_rms = _rms(signal.samples.to(runtime.device))
+
+                def embed(effected):
+                    if match_loudness:
+                        effected.samples = effected.samples * (
+                            input_rms / _rms(effected.samples).clamp_min(1e-8)
+                        )
+                    return model.get_audio_embeddings(effected)
+
                 def evaluate_loss(values):
                     """Loss on the unrolled signal; lets callers see whether optimization helped."""
                     with runtime.torch.no_grad():
                         effected = chain(signal.clone().to(runtime.device), values)
-                        return float(criterion_loss(model.get_audio_embeddings(effected)))
+                        return float(criterion_loss(embed(effected)))
 
                 initial_loss = evaluate_loss(parameters.detach())
 
@@ -139,7 +154,7 @@ class CLAPAdapter:
                         )
 
                     effected = chain(rolled.to(runtime.device), parameters)
-                    embedding = model.get_audio_embeddings(effected)
+                    embedding = embed(effected)
                     loss = criterion_loss(embedding)
                     regularization = options.get("parameter_regularization", 0.0)
                     if regularization:

@@ -17,6 +17,7 @@ _ANALYZE_OPTION_FIELDS = {
     "learning_rate",
     "parameter_initialization",
     "parameter_regularization",
+    "match_loudness",
     "roll_samples",
     "random_seed",
 }
@@ -77,6 +78,8 @@ def _validate_options(options: Any, allowed_fields: set[str], backends: set[str]
             "options.parameter_regularization must be a finite number greater than or equal to zero.",
             "options.parameter_regularization",
         )
+    if "match_loudness" in options and not isinstance(options["match_loudness"], bool):
+        _fail("options.match_loudness must be a boolean.", "options.match_loudness")
     if "roll_samples" in options and (
         not isinstance(options["roll_samples"], int)
         or isinstance(options["roll_samples"], bool)

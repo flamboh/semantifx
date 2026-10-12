@@ -98,6 +98,18 @@ class ProtocolTests(unittest.TestCase):
             validate_request(value)
         self.assertEqual(raised.exception.details["field"], "options.random_seed")
 
+    def test_accepts_match_loudness(self):
+        value = request()
+        value["options"]["match_loudness"] = True
+        self.assertIs(validate_request(value), value)
+
+    def test_rejects_non_boolean_match_loudness(self):
+        value = request()
+        value["options"]["match_loudness"] = 1
+        with self.assertRaises(SemantiFXError) as raised:
+            validate_request(value)
+        self.assertEqual(raised.exception.details["field"], "options.match_loudness")
+
 
 if __name__ == "__main__":
     unittest.main()
