@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { PromptDemo } from "@/PromptDemo";
 import { ThemeToggle } from "@/theme/ThemeToggle";
 
 const references = [
@@ -97,12 +98,18 @@ export default function App() {
         />
       </section>
 
+      <PromptDemo />
+
       <section className="flex flex-col gap-4">
         <h2 className="text-sm font-medium text-secondary-foreground dark:text-secondary">
           how it works
         </h2>
         <ol className="flex list-decimal flex-col gap-3 pl-5 leading-relaxed marker:text-secondary-foreground dark:marker:text-secondary">
           <li>the plugin runs in your daw and does its own real-time audio processing.</li>
+          <li>
+            "shape sound" sends the prompt to a planner. jev scores how useful each effect is for
+            the prompt and in what order, and the plugin builds that chain in under a second.
+          </li>
           <li>
             a local worker takes the excerpt, the prompt, and the chain. clap scores how close the
             processed audio is to the prompt, and gradient descent moves the parameters to close the
@@ -111,8 +118,9 @@ export default function App() {
           <li>the worker returns a suggestion. the plugin applies it and you keep editing.</li>
         </ol>
         <p className="text-sm text-muted-foreground">
-          the current build has a six-band eq and a distortion, 22 parameters in all, as an au,
-          vst3, and standalone app on macos.
+          the current build has four effects (eq, distortion, compressor, reverb), up to two of each
+          in a chain. the plugin's dsp is checked sample-for-sample against the python models clap
+          optimizes through.
         </p>
       </section>
 

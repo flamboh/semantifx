@@ -1,0 +1,317 @@
+{
+  "dry": "/demo/dry.mp3",
+  "prompts": [
+    {
+      "prompt": "warm and roomy, like a small jazz club",
+      "audio": "/demo/warm-and-roomy-like-a-small-jazz-club.mp3",
+      "chain": [
+        {
+          "effect": "eq",
+          "parameters": {
+            "low_shelf_gain_db": 12.83240795135498,
+            "low_shelf_cutoff_freq": 113.77783641219139,
+            "low_shelf_q_factor": 2.672192630171776,
+            "band0_gain_db": 10.307145118713379,
+            "band0_cutoff_freq": 639.0116119384766,
+            "band0_q_factor": 1.9243780493736269,
+            "band1_gain_db": -5.8973777294158936,
+            "band1_cutoff_freq": 3894.0356373786926,
+            "band1_q_factor": 0.5945795863866806,
+            "band2_gain_db": -2.622973918914795,
+            "band2_cutoff_freq": 8915.216267108917,
+            "band2_q_factor": 0.5489396192133427,
+            "band3_gain_db": 5.291233062744141,
+            "band3_cutoff_freq": 14070.612613111734,
+            "band3_q_factor": 0.5940114237368107,
+            "high_shelf_gain_db": 5.617640018463135,
+            "high_shelf_cutoff_freq": 10938.501513004303,
+            "high_shelf_q_factor": 2.466520828008652
+          }
+        },
+        {
+          "effect": "distortion",
+          "parameters": {
+            "drive_db": 26.25363063812256,
+            "character": 0.498138427734375,
+            "tone_db": -1.347914457321167,
+            "mix": 0.5147050023078918
+          }
+        },
+        {
+          "effect": "compressor",
+          "parameters": {
+            "threshold_db": -43.013489842414856,
+            "ratio": 6.907395631074905,
+            "attack_ms": 20.078187808394432,
+            "knee_db": 6.026515990495682,
+            "makeup_gain_db": 0.0
+          }
+        },
+        {
+          "effect": "reverb",
+          "parameters": {
+            "decay": 0.3604854941368103,
+            "damping": 0.42050597071647644,
+            "mix": 1.0
+          }
+        }
+      ],
+      "initialLoss": 0.798,
+      "finalLoss": 0.454
+    },
+    {
+      "prompt": "huge and spacious, like a cathedral",
+      "audio": "/demo/huge-and-spacious-like-a-cathedral.mp3",
+      "chain": [
+        {
+          "effect": "eq",
+          "parameters": {
+            "low_shelf_gain_db": -7.67192006111145,
+            "low_shelf_cutoff_freq": 601.7235207557678,
+            "low_shelf_q_factor": 1.535560588538647,
+            "band0_gain_db": 1.7599773406982422,
+            "band0_cutoff_freq": 592.5446510314941,
+            "band0_q_factor": 0.5023515567183495,
+            "band1_gain_db": -5.685269832611084,
+            "band1_cutoff_freq": 4169.290542602539,
+            "band1_q_factor": 0.938219478726387,
+            "band2_gain_db": 0.7541060447692871,
+            "band2_cutoff_freq": 9003.175497055054,
+            "band2_q_factor": 0.813341460376978,
+            "band3_gain_db": 0.7149291038513184,
+            "band3_cutoff_freq": 13929.91637736559,
+            "band3_q_factor": 0.6249807059764863,
+            "high_shelf_gain_db": 4.718306064605713,
+            "high_shelf_cutoff_freq": 10979.832266271114,
+            "high_shelf_q_factor": 3.1190055847167972
+          }
+        },
+        {
+          "effect": "reverb",
+          "parameters": {
+            "decay": 1.0,
+            "damping": 0.0,
+            "mix": 0.9656989574432373
+          }
+        }
+      ],
+      "initialLoss": 0.943,
+      "finalLoss": 0.573
+    },
+    {
+      "prompt": "crunchy and aggressive",
+      "audio": "/demo/crunchy-and-aggressive.mp3",
+      "chain": [
+        {
+          "effect": "distortion",
+          "parameters": {
+            "drive_db": 21.98008918762207,
+            "character": 0.5002935528755188,
+            "tone_db": -0.5423884391784668,
+            "mix": 0.48903948068618774
+          }
+        },
+        {
+          "effect": "eq",
+          "parameters": {
+            "low_shelf_gain_db": -8.41583251953125,
+            "low_shelf_cutoff_freq": 509.2470157146454,
+            "low_shelf_q_factor": 1.3360809460282328,
+            "band0_gain_db": -7.201974391937256,
+            "band0_cutoff_freq": 307.3997688293457,
+            "band0_q_factor": 0.6575193479657173,
+            "band1_gain_db": 8.513720035552979,
+            "band1_cutoff_freq": 3558.9957237243652,
+            "band1_q_factor": 0.47995289266109464,
+            "band2_gain_db": 12.006192207336426,
+            "band2_cutoff_freq": 8850.303530693054,
+            "band2_q_factor": 2.394185656309128,
+            "band3_gain_db": -9.30346131324768,
+            "band3_cutoff_freq": 13347.892812639475,
+            "band3_q_factor": 1.8449103593826295,
+            "high_shelf_gain_db": -7.979496717453003,
+            "high_shelf_cutoff_freq": 10263.519433140755,
+            "high_shelf_q_factor": 1.6903182476758958
+          }
+        },
+        {
+          "effect": "compressor",
+          "parameters": {
+            "threshold_db": -18.32156538963318,
+            "ratio": 1.417902709916234,
+            "attack_ms": 26.095000207424164,
+            "knee_db": 6.077076852321625,
+            "makeup_gain_db": 0.0
+          }
+        }
+      ],
+      "initialLoss": 0.841,
+      "finalLoss": 0.74
+    },
+    {
+      "prompt": "bright and airy",
+      "audio": "/demo/bright-and-airy.mp3",
+      "chain": [
+        {
+          "effect": "eq",
+          "parameters": {
+            "low_shelf_gain_db": -17.9921093583107,
+            "low_shelf_cutoff_freq": 359.49381470680237,
+            "low_shelf_q_factor": 2.1295724630355837,
+            "band0_gain_db": -0.1031804084777832,
+            "band0_cutoff_freq": 513.2240772247314,
+            "band0_q_factor": 0.3677534513175488,
+            "band1_gain_db": -0.08184552192687988,
+            "band1_cutoff_freq": 3340.5291736125946,
+            "band1_q_factor": 0.6703987710177899,
+            "band2_gain_db": 4.000244140625,
+            "band2_cutoff_freq": 8874.64290857315,
+            "band2_q_factor": 0.8053845018148422,
+            "band3_gain_db": 9.834527969360352,
+            "band3_cutoff_freq": 14050.266692787409,
+            "band3_q_factor": 0.1,
+            "high_shelf_gain_db": 4.948902130126953,
+            "high_shelf_cutoff_freq": 11029.7702267766,
+            "high_shelf_q_factor": 3.1693084418773654
+          }
+        },
+        {
+          "effect": "compressor",
+          "parameters": {
+            "threshold_db": -38.70345711708069,
+            "ratio": 5.649732887744904,
+            "attack_ms": 17.799123153090477,
+            "knee_db": 6.058160334825516,
+            "makeup_gain_db": 0.00011809882198576815
+          }
+        },
+        {
+          "effect": "reverb",
+          "parameters": {
+            "decay": 0.6636171340942383,
+            "damping": 0.1956636607646942,
+            "mix": 0.6028802990913391
+          }
+        }
+      ],
+      "initialLoss": 0.771,
+      "finalLoss": 0.618
+    },
+    {
+      "prompt": "an old telephone",
+      "audio": "/demo/an-old-telephone.mp3",
+      "chain": [
+        {
+          "effect": "eq",
+          "parameters": {
+            "low_shelf_gain_db": -15.748364627361298,
+            "low_shelf_cutoff_freq": 536.3539725542068,
+            "low_shelf_q_factor": 2.4044805437326433,
+            "band0_gain_db": -10.537694692611694,
+            "band0_cutoff_freq": 311.70530796051025,
+            "band0_q_factor": 0.7937530584633351,
+            "band1_gain_db": 6.793203353881836,
+            "band1_cutoff_freq": 3647.2235918045044,
+            "band1_q_factor": 1.7421603530645373,
+            "band2_gain_db": 0.9436893463134766,
+            "band2_cutoff_freq": 9005.533218383789,
+            "band2_q_factor": 0.1,
+            "band3_gain_db": 5.700466632843018,
+            "band3_cutoff_freq": 14502.510170638561,
+            "band3_q_factor": 0.3758368123322725,
+            "high_shelf_gain_db": 16.052591800689697,
+            "high_shelf_cutoff_freq": 11475.614821910858,
+            "high_shelf_q_factor": 0.7908865734934807
+          }
+        },
+        {
+          "effect": "distortion",
+          "parameters": {
+            "drive_db": 24.444846153259277,
+            "character": 0.5022286176681519,
+            "tone_db": 0.0916585922241211,
+            "mix": 0.49230456352233887
+          }
+        },
+        {
+          "effect": "compressor",
+          "parameters": {
+            "threshold_db": -10.891563892364502,
+            "ratio": 3.5259994715452194,
+            "attack_ms": 21.265924498438835,
+            "knee_db": 5.985812187194824,
+            "makeup_gain_db": 0.0
+          }
+        },
+        {
+          "effect": "reverb",
+          "parameters": {
+            "decay": 0.4989592432975769,
+            "damping": 0.3001896142959595,
+            "mix": 0.0
+          }
+        }
+      ],
+      "initialLoss": 0.902,
+      "finalLoss": 0.775
+    },
+    {
+      "prompt": "lo-fi, like a worn cassette tape",
+      "audio": "/demo/lo-fi-like-a-worn-cassette-tape.mp3",
+      "chain": [
+        {
+          "effect": "eq",
+          "parameters": {
+            "low_shelf_gain_db": -13.697507381439209,
+            "low_shelf_cutoff_freq": 551.2551188468933,
+            "low_shelf_q_factor": 1.3430589064955714,
+            "band0_gain_db": -9.18569564819336,
+            "band0_cutoff_freq": 200.26437282562256,
+            "band0_q_factor": 0.6696467742323876,
+            "band1_gain_db": 9.177632331848145,
+            "band1_cutoff_freq": 3853.6712527275085,
+            "band1_q_factor": 1.143852773308754,
+            "band2_gain_db": 13.369998931884766,
+            "band2_cutoff_freq": 9189.176678657532,
+            "band2_q_factor": 0.7375348918139935,
+            "band3_gain_db": 14.193863868713379,
+            "band3_cutoff_freq": 15767.873165011406,
+            "band3_q_factor": 3.0088737279176714,
+            "high_shelf_gain_db": 6.467392444610596,
+            "high_shelf_cutoff_freq": 8837.448130548,
+            "high_shelf_q_factor": 1.9153424829244616
+          }
+        },
+        {
+          "effect": "distortion",
+          "parameters": {
+            "drive_db": 18.193615436553955,
+            "character": 0.49921751022338867,
+            "tone_db": 0.8747305870056152,
+            "mix": 0.4877937138080597
+          }
+        },
+        {
+          "effect": "compressor",
+          "parameters": {
+            "threshold_db": -27.432650327682495,
+            "ratio": 5.583945229649544,
+            "attack_ms": 13.682738579809666,
+            "knee_db": 5.834637075662613,
+            "makeup_gain_db": 0.0
+          }
+        },
+        {
+          "effect": "reverb",
+          "parameters": {
+            "decay": 0.4971241056919098,
+            "damping": 0.3086960017681122,
+            "mix": 0.02336098998785019
+          }
+        }
+      ],
+      "initialLoss": 0.755,
+      "finalLoss": 0.562
+    }
+  ]
+}
