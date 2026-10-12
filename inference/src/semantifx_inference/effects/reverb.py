@@ -169,6 +169,7 @@ def render(audio: torch.Tensor, sample_rate: float, params: Mapping[str, torch.T
     if any(value.ndim != 1 or value.shape[0] != audio.shape[0] for value in (decay, damping, mix)):
         raise ValueError("reverb parameters must have shape (batch,)")
 
+    audio = torch.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
     band_gains, band_decays = expand_macros(decay, damping)
     impulse = build_impulse_response(band_gains, band_decays, _noise_for(audio))
     scales = pink_normalization_scale(impulse)

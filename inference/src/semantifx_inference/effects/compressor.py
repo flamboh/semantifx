@@ -9,6 +9,7 @@ def render(audio: Any, sample_rate: float, params: Mapping[str, Any]) -> Any:
     """Render physical compressor parameters through dasp's implementation."""
     import dasp_pytorch
 
+    audio = torch.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
     release_ms = torch.full_like(params["attack_ms"], 50.0)
     return dasp_pytorch.functional.compressor(
         audio,

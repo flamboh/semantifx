@@ -121,6 +121,14 @@ add_test(
     "${CMAKE_CURRENT_SOURCE_DIR}/../protocol/reverb/noise_44100.f32"
 )
 
+add_executable(semantifx_audio_quality_tests tests/AudioQualityTests.cpp ${SEMANTIFX_DSP_SOURCES})
+target_include_directories(semantifx_audio_quality_tests PRIVATE src)
+add_test(
+  NAME semantifx_audio_quality_tests
+  COMMAND semantifx_audio_quality_tests
+    "${CMAKE_CURRENT_SOURCE_DIR}/../protocol/reverb/noise_44100.f32"
+)
+
 set(SEMANTIFX_DSP_TEST_TARGETS
   semantifx_eq_tests
   semantifx_capture_tests
@@ -129,6 +137,7 @@ set(SEMANTIFX_DSP_TEST_TARGETS
   semantifx_compressor_tests
   semantifx_reverb_tests
   semantifx_parity_tests
+  semantifx_audio_quality_tests
 )
 
 # Offline listening-test renderer. JUCE-free, so it builds in DSP-only mode too.
@@ -173,6 +182,16 @@ if(NOT SEMANTIFX_DSP_ONLY)
     juce::juce_dsp
   )
   add_test(NAME semantifx_processor_tests COMMAND semantifx_processor_tests)
+
+  add_executable(semantifx_processor_audio_tests tests/ProcessorAudioTests.cpp)
+  target_include_directories(semantifx_processor_audio_tests PRIVATE src)
+  target_compile_definitions(semantifx_processor_audio_tests PRIVATE JucePlugin_Name="Semantifx")
+  target_link_libraries(semantifx_processor_audio_tests PRIVATE
+    Semantifx
+    juce::juce_audio_utils
+    juce::juce_dsp
+  )
+  add_test(NAME semantifx_processor_audio_tests COMMAND semantifx_processor_audio_tests)
 
   if(APPLE)
     add_test(

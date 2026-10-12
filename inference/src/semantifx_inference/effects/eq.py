@@ -50,6 +50,7 @@ def render(audio: Any, sample_rate: float, params: Mapping[str, Any], *, exact=N
 
     from ..sos_exact import exact_enabled, sosfilt_exact
 
+    audio = torch.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
     if exact_enabled(exact):
         return sosfilt_exact(_build_sos(audio, sample_rate, params), audio)
     return dasp_pytorch.functional.parametric_eq(audio, sample_rate, **params)

@@ -41,6 +41,7 @@ def process(
     hyperbolic-tangent saturation. Both curves meet the input at +/-1, which
     prevents drive from becoming an implicit peak-gain control.
     """
+    audio = torch.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
     drive = _view(drive_db)
     curve = _view(character)
     wet_mix = _view(mix)
