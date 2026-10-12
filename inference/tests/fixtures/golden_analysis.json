@@ -34,154 +34,154 @@
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "low_shelf_gain_db",
-        "value": -0.15294551849365234,
+        "value": -0.12873172760009766,
         "unit": "dB"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "low_shelf_cutoff_freq",
-        "value": 165.68553179502487,
+        "value": 170.62539234757423,
         "unit": "Hz"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "low_shelf_q_factor",
-        "value": 0.721435733884573,
+        "value": 0.7104146093130111,
         "unit": "ratio"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band0_gain_db",
-        "value": 0.26183366775512695,
+        "value": 0.12484312057495117,
         "unit": "dB"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band0_cutoff_freq",
-        "value": 496.0273265838623,
+        "value": 533.1569957733154,
         "unit": "Hz"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band0_q_factor",
-        "value": 0.8081104516983032,
+        "value": 0.6924929350614548,
         "unit": "ratio"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band1_gain_db",
-        "value": -0.3965878486633301,
+        "value": -0.5330610275268555,
         "unit": "dB"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band1_cutoff_freq",
-        "value": 3508.130669593811,
+        "value": 3578.9325833320618,
         "unit": "Hz"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band1_q_factor",
-        "value": 0.6122695118188858,
+        "value": 0.7059341907501221,
         "unit": "ratio"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band2_gain_db",
-        "value": -0.7285904884338379,
+        "value": -0.6992983818054199,
         "unit": "dB"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band2_cutoff_freq",
-        "value": 8998.181641101837,
+        "value": 9000.919818878174,
         "unit": "Hz"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band2_q_factor",
-        "value": 0.7188883431255818,
+        "value": 0.6055118709802627,
         "unit": "ratio"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band3_gain_db",
-        "value": -0.7898116111755371,
+        "value": -0.7952940464019775,
         "unit": "dB"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band3_cutoff_freq",
-        "value": 13938.56573998928,
+        "value": 13994.08008903265,
         "unit": "Hz"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "band3_q_factor",
-        "value": 0.7805179677903652,
+        "value": 0.694447722285986,
         "unit": "ratio"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "high_shelf_gain_db",
-        "value": 0.7127547264099121,
+        "value": 0.6857967376708984,
         "unit": "dB"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "high_shelf_cutoff_freq",
-        "value": 12279.387429356575,
+        "value": 12109.110152721405,
         "unit": "Hz"
       },
       {
         "effect_instance_id": "eq-1",
         "effect": "eq",
         "name": "high_shelf_q_factor",
-        "value": 0.6965324945747853,
+        "value": 0.6194923646748066,
         "unit": "ratio"
       },
       {
         "effect_instance_id": "distortion-1",
         "effect": "distortion",
         "name": "drive_db",
-        "value": 0.23423771560192108,
+        "value": 23.039361476898193,
         "unit": "dB"
       },
       {
         "effect_instance_id": "distortion-1",
         "effect": "distortion",
         "name": "character",
-        "value": 0.5116610527038574,
+        "value": 0.502864420413971,
         "unit": "ratio"
       },
       {
         "effect_instance_id": "distortion-1",
         "effect": "distortion",
         "name": "tone_db",
-        "value": 0.47295284271240234,
+        "value": -0.3218843936920166,
         "unit": "dB"
       },
       {
         "effect_instance_id": "distortion-1",
         "effect": "distortion",
         "name": "mix",
-        "value": 0.26888132095336914,
+        "value": 0.47999098896980286,
         "unit": "ratio"
       }
     ],
@@ -190,10 +190,10 @@
       "criterion": "cosine-sim",
       "iterations": 2,
       "random_seed": 0,
+      "initial_loss": 0.6375611424446106,
+      "final_loss": 0.6303589344024658,
       "model_cache_hit": false,
-      "model_cache_miss": true,
-      "initial_loss": 0.6181921362876892,
-      "final_loss": 0.6133198738098145
+      "model_cache_miss": true
     },
     "warnings": [
       "Distortion currently runs at the session sample rate without oversampling."

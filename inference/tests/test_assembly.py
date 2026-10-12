@@ -58,7 +58,7 @@ class AssemblyTests(unittest.TestCase):
     def test_to_chain_defaults_and_repeat_numbering(self):
         chain = to_chain(["distortion", "eq", "distortion"])
         self.assertEqual([item["instance_id"] for item in chain], ["distortion-1", "eq-1", "distortion-2"])
-        self.assertEqual(chain[0]["parameters"]["drive_db"], 0.0)
+        self.assertEqual(chain[0]["parameters"]["drive_db"], 24.0)
         self.assertEqual(chain[1]["parameters"]["low_shelf_gain_db"], 0.0)
 
 

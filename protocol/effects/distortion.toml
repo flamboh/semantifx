@@ -9,7 +9,7 @@ display_name = "Distortion Drive"
 unit = "dB"
 min = 0.0
 max = 48.0
-default = 0.0
+default = 24.0
 step = 0.1
 
 [[parameters]]
@@ -36,5 +36,5 @@ display_name = "Distortion Mix"
 unit = "ratio"
 min = 0.0
 max = 1.0
-default = 0.25
+default = 0.5
 step = 0.001

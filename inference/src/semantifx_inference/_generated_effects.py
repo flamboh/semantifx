@@ -23,10 +23,10 @@ EFFECTS = (
         ("high_shelf_q_factor", "ratio", 0.1, 6.0, 0.7071),
     )),
     ("distortion", "Distortion with drive, character, tone, and wet/dry mix. Nonlinear waveshaping that adds harmonics for saturation, grit, warmth from soft clipping, overdrive, fuzz, and aggression.", (
-        ("drive_db", "dB", 0.0, 48.0, 0.0),
+        ("drive_db", "dB", 0.0, 48.0, 24.0),
         ("character", "ratio", 0.0, 1.0, 0.5),
         ("tone_db", "dB", -12.0, 12.0, 0.0),
-        ("mix", "ratio", 0.0, 1.0, 0.25),
+        ("mix", "ratio", 0.0, 1.0, 0.5),
     )),
     ("compressor", "Dynamic range compressor with threshold, ratio, attack, soft knee, and makeup gain. Evens out level differences to add punch, tightness, sustain, glue, consistency, and perceived loudness, or to tame peaks and control dynamics.", (
         ("threshold_db", "dB", -60.0, 0.0, -20.0),
