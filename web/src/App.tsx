@@ -9,6 +9,11 @@ const references = [
     href: "https://arxiv.org/abs/2409.18847",
   },
   {
+    label: "instructfx2fx",
+    detail: "berkeley cnmat, dafx 2026",
+    href: "https://arxiv.org/abs/2606.22005",
+  },
+  {
     label: "clap",
     detail: "elizalde et al., icassp 2024",
     href: "https://arxiv.org/abs/2309.05767",
@@ -111,16 +116,17 @@ export default function App() {
             the prompt and in what order, and the plugin builds that chain in under a second.
           </li>
           <li>
-            a local worker takes the excerpt, the prompt, and the chain. clap scores how close the
-            processed audio is to the prompt, and gradient descent moves the parameters to close the
-            gap.
+            the plugin takes the stem, prompt, and chain to optimize the audio toward the clap
+            embedding.
           </li>
-          <li>the worker returns a suggestion. the plugin applies it and you keep editing.</li>
+          <li>
+            the plugin results are just a suggestion and you have full control of the knobs
+            afterward.
+          </li>
         </ol>
         <p className="text-sm text-muted-foreground">
           the current build has four effects (eq, distortion, compressor, reverb), up to two of each
-          in a chain. the plugin's dsp is checked sample-for-sample against the python models clap
-          optimizes through.
+          in a chain.
         </p>
       </section>
 

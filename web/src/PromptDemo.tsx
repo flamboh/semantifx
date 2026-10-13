@@ -25,13 +25,16 @@ export function PromptDemo() {
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-sm font-medium text-secondary-foreground dark:text-secondary">
-        one guitar, six prompts
+        one guitar stem, six chains
       </h2>
-      <p className="leading-relaxed">
-        each prompt below went through the full pipeline: jev picked and ordered the effects, clap
-        tuned every parameter, and the plugin's own dsp rendered the result. clips are level-matched
-        to the original so you hear the tone, not the volume.
-      </p>
+      <div className="flex flex-col gap-2 leading-relaxed">
+        <p>each prompt below was used as input to the plugin.</p>
+        <ul className="flex list-disc flex-col gap-1 pl-5 marker:text-secondary-foreground dark:marker:text-secondary">
+          <li>jev picked and ordered the effects</li>
+          <li>clap tuned the parameters</li>
+          <li>the plugin processed the audio and volume matched it to the original</li>
+        </ul>
+      </div>
       <figure className="flex flex-col gap-2 rounded-lg border bg-card p-4">
         <figcaption className="text-sm text-secondary-foreground dark:text-secondary">
           original
